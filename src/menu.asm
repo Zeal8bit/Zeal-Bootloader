@@ -207,6 +207,8 @@ process_menu_choice:
         jp z, menu_delete_entry
         cp 's'
         jp z, menu_save_new_entry
+        cp 'b'
+        jp z, menu_change_baudrate
         ; Fall-through
 invalid_choice:
         ld hl, invalid_str
@@ -237,6 +239,33 @@ menu_number_choice:
         ld h, (hl)
         ld l, a
         jp bootloader_print_boot_entry
+
+
+        ; Routine called when "Change baudrate" is selected
+menu_change_baudrate:
+        PRINT_STR(baudrate_choice)
+        ; Wait for the user input
+        call uart_receive_one_byte
+        ; Print it back
+        push af
+        call uart_send_one_byte
+        call newline
+        pop af
+        ; Convert the baudrate choice to the actual values
+        cp '1'
+        ld d, UART_BAUDRATE_57600
+        jp z, uart_set_baudrate
+        cp '2'
+        ld d, UART_BAUDRATE_38400
+        jp z, uart_set_baudrate
+        cp '3'
+        ld d, UART_BAUDRATE_19200
+        jp z, uart_set_baudrate
+        cp '4'
+        ld d, UART_BAUDRATE_9600
+        jp z, uart_set_baudrate
+        ; Invalid choice, ask again
+        jp menu_change_baudrate
 
         ; Routine called when "Load from UART" is selected
 menu_load_from_uart:
@@ -680,8 +709,16 @@ advanced_msg:
         DEFM "a - Add a new entry\r\n"
         DEFM "d - Delete an existing entry\r\n"
         DEFM "s - Save configuration to flash\r\n"
+        DEFM "b - Change baudrate\r\n"
         DEFM "\r\nEnter your choice: "
 advanced_msg_end:
+baudrate_choice:
+        DEFM "1 - 57600\r\n"
+        DEFM "2 - 38400\r\n"
+        DEFM "3 - 19200\r\n"
+        DEFM "4 - 9600\r\n"
+        DEFM "\r\nChoose a baudrate [1-4]:"
+baudrate_choice_end:
 separator:
         DEFM " - Boot "
 separator_end:

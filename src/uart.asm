@@ -191,13 +191,14 @@ uart_available_read:
 
         ; Set the baudrate for the UART
         ; Parameters:
-        ;   A - New baudrate
+        ;   D - New baudrate
         ; Returns:
         ;   None
         ; Alters:
         ;   None
         PUBLIC uart_set_baudrate
 uart_set_baudrate:
+        ld a, d
         ld (baudrate), a
         ret
 

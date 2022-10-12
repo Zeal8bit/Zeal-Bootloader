@@ -10,6 +10,7 @@
         DEFC UART_BAUDRATE_38400 = 1
         DEFC UART_BAUDRATE_19200 = 4
         DEFC UART_BAUDRATE_9600  = 10
+        DEFC UART_BAUDRATE_COUNT = 4
 
         ; Default baudrate for UART
         DEFC UART_BAUDRATE_DEFAULT = UART_BAUDRATE_57600
@@ -29,6 +30,7 @@
         EXTERN uart_disable_fifo
         EXTERN uart_receive_one_byte
         EXTERN uart_receive_big_file
+        EXTERN uart_set_baudrate
         EXTERN newline
 
         ENDIF
