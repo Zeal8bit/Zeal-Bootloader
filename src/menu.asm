@@ -209,6 +209,8 @@ process_menu_choice:
         jp z, menu_save_new_entry
         cp 'b'
         jp z, menu_change_baudrate
+        cp 'f'
+        jp z, menu_flash_rom
         ; Fall-through
 invalid_choice:
         ld hl, invalid_str
@@ -239,6 +241,94 @@ menu_number_choice:
         ld h, (hl)
         ld l, a
         jp bootloader_print_boot_entry
+
+        ; Routine called when "Flash/program the ROM" is selected
+menu_flash_rom:
+        ; Ask for the address to flash. Should be aligned on 4KB
+        PRINT_STR(new_entry_notice_str)
+_menu_flash_rom_addr:
+        PRINT_STR(flash_rom_addr_str)
+        ld hl, buffer
+        call menu_read_input
+        ld hl, buffer
+        ld a, (hl)
+        ; If nothing is provided, set address to 0
+        or a
+        jp z, _menu_flash_rom_zero
+        ; Parse the given address
+        call parse_hex
+        or a
+        ; Make sure the value given is a number
+        jr nz, _menu_flash_rom_addr
+        ; The 24-bit address is in CDE.
+        ; Check that it's aligned on 4KB (i.e. bits 0 to 11 are 0)
+        or e
+        jr nz, _menu_flash_rom_addr
+        ; Lowest nibble of D should be 0
+        or d
+        and 0xf
+        jr nz, _menu_flash_rom_addr
+        ; Address is valid, save the upper 16 bits on the stack!
+        ld e, d
+        ld d, c
+        push de
+_menu_flash_ask_size:
+        ; Ask for the size to load now
+        PRINT_STR(binary_size_str)
+        ld hl, buffer
+        call menu_read_input
+        ld hl, buffer
+        call parse_hex
+        or a
+        jr nz, _menu_flash_ask_size
+        ; Check that the size is not 0!
+        ld a, c
+        or d
+        or e
+        jr z, _menu_flash_ask_size
+        ; As we have 512KB of RAM, but 16KB are mapped currently for the bootloader,
+        ; make sure the given size doesn't exceed 512 - 16 = 496KB <=> CD <= 0x07c0
+        ; Even though the flash is 256KB big, the hardware supports flash up to 512KB,
+        ; so keep the code like this for any NOR flash.
+        ld h, c
+        ld l, d
+        push de
+        ld de, 0x7c1
+        xor a
+        sbc hl, de
+        pop de
+        jp nc, _menu_flash_ask_size
+        ; Print a message to send a file
+        push bc
+        push de
+        PRINT_STR(binary_send_str)
+        pop de
+        pop bc
+        ; Receive a file in RAM, at physical address 0x80000.
+        ; Parameters:
+        ;       CDE - Size of the file to receive
+        call uart_receive_big_file
+        ; Print a message saying flash is in progress
+        push bc
+        push de 
+        PRINT_STR(flashing_flash_str)
+        pop de
+        pop bc
+        ; Flash the received file to the ROM(NOR Flash)
+        pop hl  ; Pop the upper 16-bit of destination
+        call sys_table_flash_file_to_rom
+        or a
+        ; Error is A is not 0
+        ret z
+        PRINT_STR(flash_erase_error_str)
+        ret
+
+_menu_flash_rom_zero:
+        ; Put the upper 16 bit address (0) on the stack
+        ld d, a
+        ld e, a
+        push de
+        jr _menu_flash_ask_size
 
 
         ; Routine called when "Change baudrate" is selected
@@ -330,10 +420,11 @@ menu_load_from_uart_size:
         ; Now we have to wait for the file and save it to the RAM
         pop hl
         ; Parameters:
-        ;       HL  - Destination address
         ;       CDE - Size of the file to receive
+        ; The file will be saved at the beginning of the RAM, physical address 0x80000
         call uart_receive_big_file
         ; Map at most three MMU pages where the data were saved
+mydebug:
         push hl
         PRINT_STR(booting_ram_str)
         pop hl
@@ -683,6 +774,12 @@ new_entry_notice_str_end:
 new_entry_name_str:
         DEFM "New entry name (max 32 chars): "
 new_entry_name_str_end:
+flash_rom_addr_str:
+        DEFM "ROM address to flash, aligned on 4KB: "
+flash_rom_addr_str_end:
+flashing_flash_str:
+        DEFM 0x1b, "[1;33mFlashing in progress, do not turn off...", 0x1b, "[0m\r\n"
+flashing_flash_str_end:
 phys_addr_str:
         DEFM "22-bit physical address, aligned on 16KB: "
 phys_addr_str_end:
@@ -710,6 +807,7 @@ advanced_msg:
         DEFM "d - Delete an existing entry\r\n"
         DEFM "s - Save configuration to flash\r\n"
         DEFM "b - Change baudrate\r\n"
+        DEFM "f - Flash/Program the ROM\r\n"
         DEFM "\r\nEnter your choice: "
 advanced_msg_end:
 baudrate_choice:

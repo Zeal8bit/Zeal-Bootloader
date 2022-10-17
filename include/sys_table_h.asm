@@ -35,5 +35,6 @@
     EXTERN sys_table_ram
     EXTERN sys_table_save_flash
     EXTERN sys_boot_from_ram
+    EXTERN sys_table_flash_file_to_rom
 
     ENDIF

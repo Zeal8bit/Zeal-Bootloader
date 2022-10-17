@@ -307,7 +307,6 @@ _uart_receive_next_byte:
 
         ; Receive a big file on the UART and save it to RAM.
         ; Parameters:
-        ;       HL  - Destination address (aligned on 16KB)
         ;       CDE - Size of the file to receive (maximum 496KB)
         ; Returns:
         ;       None
@@ -332,7 +331,7 @@ uart_receive_big_file:
         ld b, c
         ; That's it! Save HL on the stack
         push hl
-        ; Use page 1 and page 2 to store the file. Map RAM (except first 16KB) to these pages
+        ; Use page 1 and page 2 to store the file. Map RAM to these pages.
         ld a, 0x80000 >> 14
         out (MMU_PAGE_1), a
         inc a
