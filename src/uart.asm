@@ -11,7 +11,7 @@
 
         EXTERN int_handlers_table
 
-        SECTION BOOTLOADER        
+        SECTION BOOTLOADER
         ; Initialize the PIO and the UART
         ; Parameters:
         ;   None
@@ -26,8 +26,8 @@ uart_initialize:
         ld (baudrate), a
         ; Init the FIFO
         ld hl, uart_fifo
-        ld (uart_fifo_wr), hl 
-        ld (uart_fifo_rd), hl 
+        ld (uart_fifo_wr), hl
+        ld (uart_fifo_rd), hl
         call pio_init_ports
         ret
 
@@ -172,8 +172,8 @@ uart_fifo_reset:
         ld hl, uart_fifo
         di
         ld (uart_fifo_size), a
-        ld (uart_fifo_wr), hl 
-        ld (uart_fifo_rd), hl 
+        ld (uart_fifo_wr), hl
+        ld (uart_fifo_rd), hl
         ei
         ret
 
@@ -397,7 +397,7 @@ uart_send_byte:
         ; dec b + jp nz, which takes 14 T-states, but coming from here, we
         ; haven't been through these, so we are a bit too early, let's wait
         ; 14 T-states too.
-        jp $+3 
+        jp $+3
         nop
         ; For each baudrate, we have to wait N T-states in TOTAL:
         ; Baudrate 57600 => (D = 0)  => 173.6  T-states (~173 +  0 * 87)

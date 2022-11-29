@@ -10,10 +10,8 @@
 rst_vector_0:
         di
         jp bootloader_entry
-        nop
-        nop
-        nop
-        nop
+        ; 4 random bytes
+        DEFM 0x42, 0x7d, 0xb1, 0xaa
 rst_vector_8:
         nop
         nop
@@ -98,4 +96,4 @@ int_handlers_table:
         ; Thus the sections above (code) must not be bigger than 4KB. If more space
         ; is needed, move this section further and adapt the code.
         SECTION SYS_TABLE
-        ORG 0x1000
+        ORG 0x2000

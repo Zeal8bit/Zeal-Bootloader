@@ -10,7 +10,7 @@
     DEFC MMU_PAGE_1 = 0xF1
     DEFC MMU_PAGE_2 = 0xF2
     DEFC MMU_PAGE_3 = 0xF3
-        
+
     ; Virtual Pages Addresses
     DEFC PAGE0_VIRT_ADDR = 0x0000
     DEFC PAGE1_VIRT_ADDR = 0x4000
@@ -19,6 +19,17 @@
 
     MACRO MAP_PHYS_ADDR page, address
         ld a, address >> 14
+        out (page), a
+    ENDM
+
+    MACRO MMU_GET_PAGE_NUMBER page
+        ASSERT(page >= MMU_PAGE_0 && page <= MMU_PAGE_3)
+        ld a, page << 6 & 0xff
+        in a, (page)
+    ENDM
+
+    MACRO MMU_SET_PAGE_NUMBER page
+        ASSERT(page >= MMU_PAGE_0 && page <= MMU_PAGE_3)
         out (page), a
     ENDM
 

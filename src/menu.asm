@@ -9,6 +9,7 @@
         DEFC BUFFER_SIZE = 32
 
         EXTERN newline
+        EXTERN test_hardware
 
         SECTION BOOTLOADER
 
@@ -157,6 +158,7 @@ print_bc_hex:
         ;   None
         ; Alters:
         ;   A, BC, DE
+        PUBLIC print_a_hex
 print_a_hex:
         ld e, a
         rlca
@@ -211,6 +213,10 @@ process_menu_choice:
         jp z, menu_change_baudrate
         cp 'f'
         jp z, menu_flash_rom
+        IFDEF ENABLE_TESTER
+        cp 't'
+        jp z, test_hardware
+        ENDIF ; ENABLE_TESTER
         ; Fall-through
 invalid_choice:
         ld hl, invalid_str
@@ -310,7 +316,7 @@ _menu_flash_ask_size:
         call uart_receive_big_file
         ; Print a message saying flash is in progress
         push bc
-        push de 
+        push de
         PRINT_STR(flashing_flash_str)
         pop de
         pop bc
@@ -424,7 +430,6 @@ menu_load_from_uart_size:
         ; The file will be saved at the beginning of the RAM, physical address 0x80000
         call uart_receive_big_file
         ; Map at most three MMU pages where the data were saved
-mydebug:
         push hl
         PRINT_STR(booting_ram_str)
         pop hl
@@ -808,6 +813,9 @@ advanced_msg:
         DEFM "s - Save configuration to flash\r\n"
         DEFM "b - Change baudrate\r\n"
         DEFM "f - Flash/Program the ROM\r\n"
+IFDEF ENABLE_TESTER
+        DEFM "t - Test hardware\r\n"
+ENDIF
         DEFM "\r\nEnter your choice: "
 advanced_msg_end:
 baudrate_choice:
@@ -823,14 +831,14 @@ separator_end:
 parenthesis:
         DEFM " (0x"
 parenthesis_end:
-arrow: 
+arrow:
         DEFM " -> 0x"
 arrow_end:
 
         SECTION BSS
         ; Array used to store the active systems in SYS TABLE
         ; We will show them with an index, so this array makes the translation
-        ; between the shown idnex on screen and the entry address.
+        ; between the shown index on screen and the entry address.
 systems_count: DEFS 1
 systems: DEFS SYS_TABLE_ENTRY_COUNT * 2
 buffer: DEFS BUFFER_SIZE + 1    ; +1 for NULL byte
