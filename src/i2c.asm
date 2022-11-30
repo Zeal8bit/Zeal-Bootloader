@@ -92,14 +92,22 @@ i2c_receive_byte:
         ld c, 0
         ; Contains ACK or NACK
         ld d, a
-
+        ld e, SDA_INPUT_MASK
+        ld a, c
 _i2c_receive_byte_loop:
-        ; Shift C to allow a new bit to come
-        rlc c
+        ; A contains the future content of C, which needs to be shifted once
+        ; to allow a new bit to come.
+        rlca
+        ld c, a
 
         ; Set SCL low, and SDA high (high impedance)
         ld a, PINS_DEFAULT_STATE | (1 << IO_I2C_SDA_OUT_PIN)
         out (IO_PIO_SYSTEM_DATA), a
+
+        ; Without a delay, SCL will stay low for 1.8us and high for 5.3us.
+        ; Let's balance it by delaying a bit.
+        push af
+        pop af
 
         ; Set SCL back to high
         or 1 << IO_I2C_SCL_OUT_PIN
@@ -108,30 +116,36 @@ _i2c_receive_byte_loop:
         ; SDA is not allowed to change here as SCL is high
         ; Get the value of SDA here
         in a, (IO_PIO_SYSTEM_DATA)
-        and SDA_INPUT_MASK
-        jp z, _i2c_receive_byte_no_inc
-        inc c
-_i2c_receive_byte_no_inc:
+        and e
+        add c
+        ; Here we should ld c, a but let's save 4 T-States by using rlca instead of
+        ; shifting C at the beginning of the loop instead.
         djnz _i2c_receive_byte_loop
-        ; End of byte transmission
+        ; End of byte transmission, set result in C
+        ld c, a
+
+        ; SDA is in high-impedance here, set clock to low first
+        ld a, PINS_DEFAULT_STATE | (1 << IO_I2C_SDA_OUT_PIN)
+        out (IO_PIO_SYSTEM_DATA), a
 
         ; Check if the caller needs to send ACK or NACK
         bit 0, d
-        ; Prepare SDA to high-impedance (high)
-        ld a, PINS_DEFAULT_STATE | (1 << IO_I2C_SDA_OUT_PIN)
         jr z, _i2c_receive_byte_no_ack
+        ; Need to ACK
         ld a, PINS_DEFAULT_STATE
-_i2c_receive_byte_no_ack:
-
-        ; Set SCL to low (set because of PINS_DEFAULT_STATE
+        ; Set SDA value here to ACK
         out (IO_PIO_SYSTEM_DATA), a
+_i2c_receive_byte_no_ack:
 
         ; Put SCL high again
         or 1 << IO_I2C_SCL_OUT_PIN
         out (IO_PIO_SYSTEM_DATA), a
 
-        ; Return the byte received
+        ; Return the byte received, needs to be shifted
         ld a, c
+        REPT IO_I2C_SDA_IN_PIN
+        rrca
+        ENDR
 
         pop bc
         ret
@@ -146,7 +160,7 @@ _i2c_receive_byte_no_ack:
         ;   A
 i2c_perform_start:
         ; Output a start bit by setting SDA to LOW. SCL must remain HIGH.
-        ld a, PINS_DEFAULT_STATE | (1 << IO_I2C_SCL_OUT_PIN)
+        ld a, PINS_DEFAULT_STATE | (1 << IO_I2C_SCL_OUT_PIN) | (0 << IO_I2C_SDA_OUT_PIN)
         out (IO_PIO_SYSTEM_DATA), a
         ret
 
@@ -154,6 +168,9 @@ i2c_perform_repeated_start:
         ; Set SCL to low, set SDA to high
         ld a, PINS_DEFAULT_STATE | (1 << IO_I2C_SDA_OUT_PIN)
         out (IO_PIO_SYSTEM_DATA), a
+        ; Add a small delay
+        ;ex (sp), hl
+        ;ex (sp), hl
         ; Set SCL to high, without modifying SDA
         or 1 << IO_I2C_SCL_OUT_PIN
         out (IO_PIO_SYSTEM_DATA), a
@@ -173,12 +190,17 @@ i2c_perform_repeated_start:
 i2c_perform_stop:
         ; Stop bit, put SCL low, put SDA high
         ; then SCL high, finally SDA high
-        ld a, PINS_DEFAULT_STATE | (1 << IO_I2C_SDA_OUT_PIN)
+        in a, (IO_PIO_SYSTEM_DATA)
+
+        and  ~(1 << IO_I2C_SCL_OUT_PIN)
         out (IO_PIO_SYSTEM_DATA), a
-        ; Put SCL high, save time by making SDA low here
-        ld a, PINS_DEFAULT_STATE | (1 << IO_I2C_SCL_OUT_PIN)
+
+        ld a, PINS_DEFAULT_STATE
         out (IO_PIO_SYSTEM_DATA), a
-        ; Finally, put SDA high
+
+        or 1 << IO_I2C_SCL_OUT_PIN
+        out (IO_PIO_SYSTEM_DATA), a
+
         or 1 << IO_I2C_SDA_OUT_PIN
         out (IO_PIO_SYSTEM_DATA), a
         ret
