@@ -4,6 +4,7 @@
 
     INCLUDE "mmu_h.asm"
     INCLUDE "video_h.asm"
+    INCLUDE "pio_h.asm"
     INCLUDE "sys_table_h.asm"
     INCLUDE "uart_h.asm"
 
@@ -37,9 +38,9 @@ test_hardware:
     ;call test_mmu
     ;call test_nor_flash
     ;call test_ram
-    call test_rtc
     ;call test_eeprom
-    ;call test_keyboard
+    ;call test_rtc
+    call test_keyboard
     pop hl
     ld a, h
     MMU_SET_PAGE_NUMBER(MMU_PAGE_1)
@@ -652,11 +653,61 @@ eeprom_64kb_detected_end:
 
 test_keyboard:
     PRINT_STR(keyboard_start_msg)
+    ld hl, keycode
+    ld de, keychar
+
+_test_keyboard_wait:
+    ld a, (de)
+    or a
+    jp z, test_keyboard_end
+    push de
+    call uart_send_one_byte
+    pop de
+    ld b, (hl)
+    ld c, 0xf0  ; Release scan
+    REPTI reg, b, c, b
+    call test_keyboard_receive_byte
+    ; Received a byte, check if it's Q PS/2 keycode
+    cp reg
+    jp nz, _test_keyboard_wait
+    ENDR
+    ld a, '\b'
+    push de
+    call uart_send_one_byte
+    pop de
+    inc hl
+    inc de
+    jp _test_keyboard_wait
+test_keyboard_end:
+    PRINT_STR(keyboard_previous_msg)
+    PRINT_STR(test_success)
     ret
 
+keychar: DEFM "qwerty", 0
+keycode: DEFM 0x15, 0x1d, 0x24, 0x2d, 0x2c, 0x35
+
+
+test_keyboard_receive_byte:
+    in a, (IO_PIO_SYSTEM_DATA)
+    bit IO_KEYBOARD_PIN, a
+    jr nz, test_keyboard_receive_byte
+    in a, (0xe8)
+    ; Active signal stays on for 20us on real hardware, so wait until signal goes high
+    push af
+test_keyboard_wait_end:
+    in a, (IO_PIO_SYSTEM_DATA)
+    bit IO_KEYBOARD_PIN, a
+    jr z, test_keyboard_wait_end
+    pop af
+    ret
+
+; Message to erase "Press" from the monitor
+keyboard_previous_msg:
+    DEFM "\b\b\b\b\b\b"
+keyboard_previous_msg_end:
 
 keyboard_start_msg:
-    DEFM "PS/2 Keyboard............Type: QWERTY"
+    DEFM "PS/2 Keyboard............Press "
 keyboard_start_msg_end:
 
     SECTION BSS

@@ -25,28 +25,32 @@
 i2c_send_byte:
         push bc
         ld b, 8
-        ld c, a
-        ld d, PINS_DEFAULT_STATE
+        ld c, PINS_DEFAULT_STATE
+        ; Prepare the byte to send
+        REPT IO_I2C_SDA_OUT_PIN
+        rlca
+        ENDR
+        ld e, a
+        ; D represent the mask to retrieve the SDA line output data
+        ld d, 1 << IO_I2C_SDA_OUT_PIN
+        ; A represent the current value of SDA, 0 to begin with
+        xor a
 _i2c_send_byte_loop:
-        ; Set SCL low, keep SDA low
-        ld a, d
+        rlc e
+
+        ; Set SCL low, keep SDA to the current value
+        or c
         out (IO_PIO_SYSTEM_DATA), a
 
-        xor a
-        ; Send next bit on SDA wire
-        rlc c
-        ; A is 0 so this will become A = Carry
-        adc a, a
-        ; If SDA is bit 0, no need to shift, else, it is needed
-        IF IO_I2C_SDA_OUT_PIN != 0
-        jr z, _i2c_send_byte_no_shift
-        ld a, 1 << IO_I2C_SDA_OUT_PIN
-_i2c_send_byte_no_shift:
+        ; Prepare the next bit to send in the PINS_STATE
+        ld a, e
+        and d
+        or c    ; or with PINS_DEFAULT_STATE
+
+        IFNDEF I2C_NO_LIMIT
+        ; In order to achieve a duty cycle of 50% with a period of 5us, let's add the following
+        bit 0, a
         ENDIF
-        ; Do not modify other pins' state
-        or PINS_DEFAULT_STATE
-        ; In D, SCL is low, but SDA is set or reset
-        ld d, a
 
         ; Set SDA state in PIO, set SCL to low at the same time
         ; SCL is already 0 because PINS_DEFAULT_STATE sets it to 0
@@ -55,21 +59,32 @@ _i2c_send_byte_no_shift:
         ; Set SCL back to high: SDA must not change.
         or 1 << IO_I2C_SCL_OUT_PIN
         out (IO_PIO_SYSTEM_DATA), a
+
+        ; Save only the current SDA value in A
+        and d
+
+        IFNDEF I2C_NO_LIMIT
+        ; In order to achieve a duty cycle of 50% with a period of 5us, let's add the following
+        jp $+3
+        ENDIF
+
         ; SDA is not allowed to change here as SCL is high
         djnz _i2c_send_byte_loop
         ; End of byte transmission
 
-        ; Need to check ACK: set SCL to low.
-        ld a, d
+        ; Need to check ACK: set SCL to low, do not modify SDA
+        and ~(1 << IO_I2C_SCL_OUT_PIN)
         out (IO_PIO_SYSTEM_DATA), a
 
-        ; SDA MUST be set to 1 to activate the open-drain
-        ; output!
+        ; SDA MUST be set to 1 to activate the open-drain output!
         ld a, PINS_DEFAULT_STATE | (1 << IO_I2C_SDA_OUT_PIN)
         out (IO_PIO_SYSTEM_DATA), a
 
+        ; Wait a bit to have a 5us period
+        jr $+2
+
         ; Put SCL high again
-        or 1 << IO_I2C_SCL_OUT_PIN
+        ld a, PINS_DEFAULT_STATE | (1 << IO_I2C_SDA_OUT_PIN) | (1 << IO_I2C_SCL_OUT_PIN)
         out (IO_PIO_SYSTEM_DATA), a
 
         ; Read the reply from the device
@@ -82,71 +97,76 @@ _i2c_send_byte_no_shift:
 
         ; Receive a byte on the bus (perform ACK if needed)
         ; Parameters:
-        ;   A - 0: No ACK, 1: ACK
+        ;   A - 0: ACK, 1: NACK
         ; Returns:
         ;   A - Byte received
 i2c_receive_byte:
         push bc
+        push hl
         ld b, 8
-        ; Contains the result
-        ld c, 0
+        ld c, IO_PIO_SYSTEM_DATA
         ; Contains ACK or NACK
         ld d, a
-        ld e, SDA_INPUT_MASK
-        ld a, c
+        ; Contains the result
+        xor a
+        ld h, SDA_INPUT_MASK
+        ld l, PINS_DEFAULT_STATE | (1 << IO_I2C_SDA_OUT_PIN)
 _i2c_receive_byte_loop:
-        ; A contains the future content of C, which needs to be shifted once
+        ; A contains the future content of E, which needs to be shifted once
         ; to allow a new bit to come.
         rlca
-        ld c, a
 
         ; Set SCL low, and SDA high (high impedance)
-        ld a, PINS_DEFAULT_STATE | (1 << IO_I2C_SDA_OUT_PIN)
-        out (IO_PIO_SYSTEM_DATA), a
+        out (c), l
 
-        ; Without a delay, SCL will stay low for 1.8us and high for 5.3us.
-        ; Let's balance it by delaying a bit.
+        ld e, a
+
+        IFNDEF I2C_NO_LIMIT
+        ; Without a delay, SCL will stay low during less than 5us. Let's balance it by delaying a bit.
         push af
         pop af
+        nop
+        ENDIF
 
         ; Set SCL back to high
-        or 1 << IO_I2C_SCL_OUT_PIN
-        out (IO_PIO_SYSTEM_DATA), a
+        ld a, PINS_DEFAULT_STATE | (1 << IO_I2C_SDA_OUT_PIN) | (1 << IO_I2C_SCL_OUT_PIN)
+        out (c), a
 
         ; SDA is not allowed to change here as SCL is high
         ; Get the value of SDA here
-        in a, (IO_PIO_SYSTEM_DATA)
-        and e
-        add c
-        ; Here we should ld c, a but let's save 4 T-States by using rlca instead of
-        ; shifting C at the beginning of the loop instead.
+        in a, (c)
+        and h
+        add e
+        ; Loop again until we don't have any remaining bit
         djnz _i2c_receive_byte_loop
-        ; End of byte transmission, set result in C
-        ld c, a
+
+        ; End of byte transmission, set result in E
+        ld e, a
 
         ; SDA is in high-impedance here, set clock to low first
-        ld a, PINS_DEFAULT_STATE | (1 << IO_I2C_SDA_OUT_PIN)
-        out (IO_PIO_SYSTEM_DATA), a
+        out (c), l
 
-        ; Check if the caller needs to send ACK or NACK
-        bit 0, d
-        jr z, _i2c_receive_byte_no_ack
-        ; Need to ACK
-        ld a, PINS_DEFAULT_STATE
-        ; Set SDA value here to ACK
-        out (IO_PIO_SYSTEM_DATA), a
-_i2c_receive_byte_no_ack:
+        ; Check if we need to ACK. D is either 0, ACK, either 1, NACK.
+        ld a, d
+        REPT IO_I2C_SDA_OUT_PIN
+        rlca
+        ENDR
 
-        ; Put SCL high again
+        ; Output value of SDA first, while SCL is still low
+        or PINS_DEFAULT_STATE
+        out (c), a
+
+        ; Add the flag to put SCL to 1
         or 1 << IO_I2C_SCL_OUT_PIN
-        out (IO_PIO_SYSTEM_DATA), a
+        out (c), a
 
         ; Return the byte received, needs to be shifted
-        ld a, c
+        ld a, e
         REPT IO_I2C_SDA_IN_PIN
         rrca
         ENDR
 
+        pop hl
         pop bc
         ret
 
@@ -157,20 +177,19 @@ _i2c_receive_byte_no_ack:
         ; Returns:
         ;   None
         ; Alters:
-        ;   A
+        ;   C
 i2c_perform_start:
+        ld c, a
         ; Output a start bit by setting SDA to LOW. SCL must remain HIGH.
         ld a, PINS_DEFAULT_STATE | (1 << IO_I2C_SCL_OUT_PIN) | (0 << IO_I2C_SDA_OUT_PIN)
         out (IO_PIO_SYSTEM_DATA), a
+        ld a, c
         ret
-
 i2c_perform_repeated_start:
         ; Set SCL to low, set SDA to high
+        ld c, a
         ld a, PINS_DEFAULT_STATE | (1 << IO_I2C_SDA_OUT_PIN)
         out (IO_PIO_SYSTEM_DATA), a
-        ; Add a small delay
-        ;ex (sp), hl
-        ;ex (sp), hl
         ; Set SCL to high, without modifying SDA
         or 1 << IO_I2C_SCL_OUT_PIN
         out (IO_PIO_SYSTEM_DATA), a
@@ -178,6 +197,7 @@ i2c_perform_repeated_start:
         ; Output a start bit by setting SDA to LOW. SCL must remain HIGH.
         ld a, PINS_DEFAULT_STATE | (1 << IO_I2C_SCL_OUT_PIN)
         out (IO_PIO_SYSTEM_DATA), a
+        ld a, c
         ret
 
         ; Perform a STOP on the bus. SCL MUST be high when calling this routine
@@ -186,23 +206,23 @@ i2c_perform_repeated_start:
         ; Returns:
         ;   None
         ; Alters:
-        ;   A
+        ;   C
 i2c_perform_stop:
-        ; Stop bit, put SCL low, put SDA high
-        ; then SCL high, finally SDA high
+        ld c, a
         in a, (IO_PIO_SYSTEM_DATA)
-
+        ; Set SCL to low while keeping SDA value
         and  ~(1 << IO_I2C_SCL_OUT_PIN)
         out (IO_PIO_SYSTEM_DATA), a
-
+        ; Put both SCL and SDA to low
         ld a, PINS_DEFAULT_STATE
         out (IO_PIO_SYSTEM_DATA), a
-
+        ; Set SCL to high
         or 1 << IO_I2C_SCL_OUT_PIN
         out (IO_PIO_SYSTEM_DATA), a
-
+        ; Set SDA to high
         or 1 << IO_I2C_SDA_OUT_PIN
         out (IO_PIO_SYSTEM_DATA), a
+        ld a, c
         ret
 
         ; Write bytes on the bus to the specified device
@@ -212,8 +232,8 @@ i2c_perform_stop:
         ;   B - Size of the buffer
         ; Returns:
         ;   A - 0: Success
-        ;       1: No device responded
-        ;       2: Device stopped responding during transmission (NACK received)
+        ;       -1: No device responded
+        ;       positive value: Device stopped responding during transmission (NACK received)
         ; Alters:
         ;   A, HL
         PUBLIC i2c_write_device
@@ -225,15 +245,13 @@ i2c_write_device:
 
         ; Making the write device address in A (left shift + 0)
         sla a
-        ld c, a
 
         ; Start signal and send address
         call i2c_perform_start
-        ld a, c
         call i2c_send_byte
-        ld c, 0
         ; If not zero, NACK was received, abort
-        jp nz, _i2c_write_device_address_nack
+        ld a, 0xff
+        jp nz, _i2c_write_device_nack
 
         ; Start reading and sending the bytes
 _i2c_write_device_byte:
@@ -241,21 +259,15 @@ _i2c_write_device_byte:
         inc hl
         ; BC are both preserved across this function call
         call i2c_send_byte
-        ; If not zero, NACK was received, abort
-        jp nz, _i2c_write_device_nack
+        ; If not zero, NACK was received, abort.
+        jr nz, _i2c_write_device_nack
         djnz _i2c_write_device_byte
 
-        ; C should be 0 at the end, so put -2 inside.
-        ld c, -2
+        ; A should be 0 at the end to show success
+        xor a
 _i2c_write_device_nack:
-        inc c
-_i2c_write_device_address_nack:
-        inc c
-_i2c_write_device_end:
         ; Send stop signal in ANY case
         call i2c_perform_stop
-        ; Restore error code
-        ld a, c
         pop de
         pop bc
         ret
@@ -267,7 +279,7 @@ _i2c_write_device_end:
         ;   B - Size of the buffer
         ; Returns:
         ;   A - 0: Success
-        ;       1: No device responded
+        ;       -1: No device responded
         ; Alters:
         ;   A, HL
         PUBLIC i2c_read_device
@@ -280,40 +292,37 @@ i2c_read_device:
         ; Making the read device address in A (left shift + 1)
         scf
         rla
-        ld c, a
 
         ; Start signal and send address
         call i2c_perform_start
-        ld a, c
+        ; Send the device address
         call i2c_send_byte
-        ld c, 0
         ; If not zero, NACK was received, abort
-        jp nz, _i2c_read_device_address_nack
+        ld a, 0xff
+        jr nz, _i2c_read_device_address_nack
 
+        ; Run the following loop for B - 1 (sending an ACK at the end)
+        dec b
+        jp z, _i2c_read_device_byte_end
 _i2c_read_device_byte:
-        ; If B is 1, the last byte needs to be read, NACK shall be passed on the bus.
-        ; Else, ACK shall be performed (0 = NACK, 1 = ACK)
-        ld a, b
-        dec a
-        ; If A is 0, do nothing, it is already representing NACK
-        ; Else, add 1
-        jr z, _i2c_read_device_perform_nack
-        ld a, 1
-_i2c_read_device_perform_nack:
-        ; BC are both preserved across this function call
+        ; Set A to 0 (ACK)
+        xor a
+        ; BC and HL are both preserved across this function call
         call i2c_receive_byte
         ld (hl), a
         inc hl
         djnz _i2c_read_device_byte
+_i2c_read_device_byte_end:
+        ; Set A to 1 (NACK)
+        ld a, 1
+        call i2c_receive_byte
+        ld (hl), a
 
-        ; C should be 0 at the end, so put -1 inside.
-        ld c, -1
+        ; Success, set A to 0
+        xor a
 _i2c_read_device_address_nack:
-        inc c
         ; Send stop signal in ANY case
         call i2c_perform_stop
-        ; Restore error code
-        ld a, c
         pop de
         pop bc
         ret
@@ -327,7 +336,7 @@ _i2c_read_device_address_nack:
         ;   C - Size of the read buffer
         ; Returns:
         ;   A - 0: Success
-        ;       1: No device responded
+        ;       -1: No device responded
         ; Alters:
         ;   A, HL
         PUBLIC i2c_write_read_device
@@ -336,19 +345,18 @@ i2c_write_read_device:
         ; temporary storage for device address and error code
         push bc
         push de
-        ; Save AF for the device address
-        push af
 
         ; Making the write device address in A (left shift + 0)
         sla a
-        ld c, a
+        ; Save AF for the device address
+        push af
 
         ; Start signal and send address
         call i2c_perform_start
-        ld a, c
+        ; Send the device address
         call i2c_send_byte
         ; If not zero, NACK was received, abort
-        jp nz, _i2c_write_read_device_address_nack
+        jr nz, _i2c_write_read_device_address_nack
 
         ; Start sending the bytes
 _i2c_write_read_write_device_byte:
@@ -357,60 +365,56 @@ _i2c_write_read_write_device_byte:
         ; BC are both preserved across this function call
         call i2c_send_byte
         ; If not zero, NACK was received, abort
-        jp nz, _i2c_write_read_device_address_nack
+        jr nz, _i2c_write_read_device_address_nack
         djnz _i2c_write_read_write_device_byte
 
-        ; Bytes were sent successfully. Issue a repeated start with
-        ; the read address.
+        ; Bytes were sent successfully. Issue a repeated start with the read address.
         pop af
 
-        ; Making the read device address in A (left shift + 1)
-        scf
-        rla
-        ld c, a
+        ; Making the read device address in A. A has already been shifted left.
+        inc a
 
         ; Start signal and send address
         call i2c_perform_repeated_start
-        ld a, c
+        ; Send the (read) device address
         call i2c_send_byte
         ; If not zero, NACK was received, abort
         jp nz, _i2c_write_read_device_address_nack_no_pop
 
         ; Before reading the bytes, retrieve DE and BC from the stack.
-        ; Put DE in HL. Both HL and BC shall be saved it back on the stack
+        ; Put DE in HL. Both HL and BC shall be saved back on the stack.
         pop hl
         pop bc
         push bc
         push hl
-        ; Argument (DE) is in HL, BC (argument) is in BC
+        ; Argument (DE) is in HL, put C (read size) argument in B
         ld b, c
+        ; Run the following loop for B - 1 (sending an ACK at the end)
+        dec b
+        jp z, _i2c_write_read_read_device_byte_end
 _i2c_write_read_read_device_byte:
-        ; If B is 1, the last byte needs to be read, NACK shall be passed on the bus.
-        ; Else, ACK shall be performed (0 = NACK, 1 = ACK)
-        ld a, b
-        dec a
-        ; If A is 0, do nothing, it is already representing NACK
-        ; Else, add 1
-        jr z, _i2c_write_read_device_perform_nack
-        ld a, 1
-_i2c_write_read_device_perform_nack:
-        ; BC are both preserved across this function call
+        ; Set A to 0 (ACK)
+        xor a
+        ; B and HL are both preserved across this function call
         call i2c_receive_byte
         ld (hl), a
         inc hl
         djnz _i2c_write_read_read_device_byte
+_i2c_write_read_read_device_byte_end:
+        ; Set A to 1 (NACK)
+        ld a, 1
+        call i2c_receive_byte
+        ld (hl), a
 
         ; Everything went well, stop signal
-        call i2c_perform_stop
         xor a
-        pop de
-        pop bc
-        ret
+        jp _i2c_write_read_device_end
 _i2c_write_read_device_address_nack:
         pop af
 _i2c_write_read_device_address_nack_no_pop:
+        ld a, 0xff
+_i2c_write_read_device_end:
         call i2c_perform_stop
-        ld a, 1
         pop de
         pop bc
         ret
