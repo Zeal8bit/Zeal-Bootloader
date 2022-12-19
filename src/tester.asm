@@ -35,11 +35,11 @@ test_hardware:
     ld l, a
     push hl
     ; Run all the tests!
-    ;call test_mmu
-    ;call test_nor_flash
-    ;call test_ram
-    ;call test_eeprom
-    ;call test_rtc
+    call test_mmu
+    call test_nor_flash
+    call test_ram
+    call test_eeprom
+    call test_rtc
     call test_keyboard
     pop hl
     ld a, h

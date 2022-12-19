@@ -8,7 +8,7 @@
 
     DEFC CPU_FREQ = 10000000
     DEFC RAM_CODE_DEST = 0xD500
-    
+
     SECTION BOOTLOADER
 
     ; Initialize the system table. This will read the system table from Flash
@@ -229,7 +229,7 @@ sys_boot_from_ram:
     ld b, 0x80000 >> 14
     ex de, hl
     ; Parameters:
-    ;   DE - Virtual address to jump to 
+    ;   DE - Virtual address to jump to
     ;   B  - Physical page index to map to the virtual page
     jp _sys_table_boot_de
 
@@ -281,7 +281,7 @@ sys_table_save_loop:
     ; Returns:
     ;   None
     ; Alters:
-    ;   A, BC, DE, HL 
+    ;   A, BC, DE, HL
     PUBLIC sys_table_flash_file_to_rom
 sys_table_flash_file_to_rom:
     ; As erasing and writing to Flash requires writes to 0x2AAA and 0x5555,
@@ -421,7 +421,7 @@ _flash_rom_no_remap:
     ld a, d
     ; Keep D lowest 4 bits
     and 0xf
-    ld d, a 
+    ld d, a
     or e
     ret z
 _flash_rom_single_sector:
@@ -671,7 +671,7 @@ sys_table_flash_byte_wait:
     ex de, hl
     pop hl
     ret
-    
+
     ; Erase the system table from the NOR Flash.
     ; This will erase (set bytes to 0xFF) the sector of 4KB, from
     ; SYS_TABLE address to SYS_TABLE + 4KB.
@@ -680,7 +680,7 @@ sys_table_flash_byte_wait:
     ; Returns:
     ;   None
     ; Alters:
-    ;   A, HL, DE 
+    ;   A, HL, DE
 sys_table_erase_flash:
     ; Flash memory is mapped to the first 32KB of memory, so no translation
     ; is required in the following algorithm.
@@ -716,7 +716,7 @@ sys_table_erase_flash:
     ;   A, DE
 sleep_ms:
     push bc
-_sleep_ms_loop:    
+_sleep_ms_loop:
     ld bc, CPU_FREQ / 1000 / 24
 _sleep_ms_waste_time:
     ; 24 T-states for the following, until 'jp nz, _zos_waste_time'
@@ -797,7 +797,7 @@ sys_sector_buffer: DEFS 4096
 
     SECTION SYS_TABLE
     ; First and default entry in the table
-    DEFS SYS_NAME_MAX_LENGTH, "Zeal 8-bit OS v0.1"
+    DEFS SYS_NAME_MAX_LENGTH, "Zeal 8-bit OS"
     DEFP 0x4000
     DEFW 0x0000
     DEFB 0
