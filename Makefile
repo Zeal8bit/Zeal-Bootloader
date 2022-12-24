@@ -1,4 +1,4 @@
-CC=z88dk-z80asm
+CC=$(shell which z88dk-z80asm z88dk.z88dk-z80asm | head -1)
 BIN=bootloader.bin
 DUMP=bootloader.dump
 ENABLE_TESTER = 1
