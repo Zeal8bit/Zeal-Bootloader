@@ -282,9 +282,9 @@ test_nor_flash_write:
     ; We will write a sector of the flash, to make sure we can write
     ; Map RAM first page in page 1
     MAP_PHYS_ADDR(MMU_PAGE_1, 0x80000)
-    ; Backup the sector starting at address 0x4000
+    ; Backup the sector starting at address 0x3000
     ld de, PAGE1_VIRT_ADDR
-    ld hl, 0x4000
+    ld hl, 0x3000
     ld bc, 0x1000
     ldir
     ; Modify the data to increment each byte
@@ -300,14 +300,14 @@ test_nor_flash_write_loop:
     ; Flash this section
     ld c, 0
     ld de, 0x1000
-    ld hl, 0x40
+    ld hl, 0x30
     ; Parameters:
     ;   CDE - Size of the section to flash
     ;   HL - Upper 16-bit of the flash to flash
     call sys_table_flash_file_to_rom
     ; Check that everything has been written correctly
     MAP_PHYS_ADDR(MMU_PAGE_1, 0x80000)
-    ld hl, 0x4000
+    ld hl, 0x3000
     ld de, PAGE1_VIRT_ADDR
     ld bc, 0x1000
     call mem_compare
@@ -327,7 +327,7 @@ test_nor_flash_write_loop_dec:
     ; Re-flash the sector
     ld c, 0
     ld de, 0x1000
-    ld hl, 0x40
+    ld hl, 0x30
     call sys_table_flash_file_to_rom
     PRINT_STR(test_success)
     ret
