@@ -320,14 +320,28 @@ _menu_flash_ask_size:
         PRINT_STR(flashing_flash_str)
         pop de
         pop bc
+        ; Pop the upper 16-bit of the destination
+        pop hl
+        ; If the destination is the bootloader (0), reboot after flashing
+        ld a, h
+        or l
+        jr z, _flash_and_reboot
         ; Flash the received file to the ROM(NOR Flash)
-        pop hl  ; Pop the upper 16-bit of destination
         call sys_table_flash_file_to_rom
         or a
         ; Error is A is not 0
         ret z
         PRINT_STR(flash_erase_error_str)
         ret
+_flash_and_reboot:
+        ; Store rst 0 (0xc7) instruction in RAM
+        ld a, 0xc7
+        push hl
+        ld hl, reset_instruction
+        ld (hl), a
+        ; Set reset_instruction as the return address
+        ex (sp), hl
+        jp sys_table_flash_file_to_rom
 
 _menu_flash_rom_zero:
         ; Put the upper 16 bit address (0) on the stack
@@ -843,3 +857,4 @@ systems_count: DEFS 1
 systems: DEFS SYS_TABLE_ENTRY_COUNT * 2
 buffer: DEFS BUFFER_SIZE + 1    ; +1 for NULL byte
 buffer_name: DEFS BUFFER_SIZE + 1    ; +1 for NULL byte
+reset_instruction: DEFS 1
