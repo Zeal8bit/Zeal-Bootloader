@@ -3,7 +3,7 @@ BIN=bootloader.bin
 DUMP=bootloader.dump
 ENABLE_TESTER = 1
 ASMFLAGS=
-FILES=rst_vectors.asm boot.asm uart.asm systems.asm video.asm menu.asm
+FILES=rst_vectors.asm boot.asm uart.asm systems.asm video.asm menu.asm format.asm
 # SRCS must be lazily evaluated since it depends FILES, which may be altered below
 SRCS=$(addprefix src/,$(FILES))
 DISASSEMBLER=$(shell which z88dk-dis z88dk.z88dk-dis | head -1)
@@ -34,7 +34,7 @@ all: clean version.txt
 	@# Concatenate the SYS_TABLE
 	cat $(BUILDIR)/src/*SYS_TABLE.bin >> $(BUILDIR)/$(BIN)
 	@# Generate the disassembly dump for debugging
-	$(DISASSEMBLER) -x $(BUILDIR)/src/*.map $(BUILDIR)/$(BIN) > $(BUILDIR)/$(DUMP)
+	$(DISASSEMBLER) -o 0x0000 -x $(BUILDIR)/src/*.map $(BUILDIR)/$(BIN) > $(BUILDIR)/$(DUMP)
 
 version.txt:
 	@echo `git describe --always --tags` > version.txt

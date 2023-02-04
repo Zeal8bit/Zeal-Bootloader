@@ -10,6 +10,7 @@
 
         EXTERN newline
         EXTERN test_hardware
+        EXTERN format_eeprom
 
         SECTION BOOTLOADER
 
@@ -217,6 +218,8 @@ process_menu_choice:
         cp 't'
         jp z, test_hardware
         ENDIF ; ENABLE_TESTER
+        cp 'q'
+        jp z, format_eeprom
         ; Fall-through
 invalid_choice:
         ld hl, invalid_str
@@ -827,6 +830,7 @@ advanced_msg:
         DEFM "s - Save configuration to flash\r\n"
         DEFM "b - Change baudrate\r\n"
         DEFM "f - Flash/Program the ROM\r\n"
+        DEFM "q - Quick format I2C EEPROM (ZealFS)\r\n"
 IFDEF ENABLE_TESTER
         DEFM "t - Test hardware\r\n"
 ENDIF

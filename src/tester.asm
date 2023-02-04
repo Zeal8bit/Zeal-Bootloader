@@ -541,24 +541,33 @@ rtc_warning_msg_end:
     DEFC I2C_EEPROM_ADDRESS = 0x50
 
     EXTERN i2c_write_device
-sleep_ms:
-_sleep_ms_again:
-    ; 24 is the number of T-states below
-    ld bc, 10000 / 24
-_sleep_ms_waste_time:
-    dec bc
-    ld a, b
-    or c
-    jp nz, _sleep_ms_waste_time
-    ; If we are here, a milliseconds has elapsed
-    dec de
-    ld a, d
-    or e
-    jp nz, _sleep_ms_again
-    ret
+    EXTERN sleep_ms
 
 test_eeprom:
     PRINT_STR(eeprom_start_msg)
+    ; Make a backup of the EEPROM content (4 bytes)
+    ld hl, eeprom_write_buffer
+    ld de, buffer_backup + 2
+    ld a, I2C_EEPROM_ADDRESS
+    ld b, 2
+    ld c, 4
+    call i2c_write_read_device
+    or a
+    jp nz, test_eeprom_error
+    call test_eeprom_size
+    ; No matter what the return value is we have to restore the EEPROM content
+    xor a
+    ld hl, buffer_backup
+    ld (hl), a
+    inc hl
+    ld (hl), a
+    dec hl
+    ld b, 6
+    ld a, I2C_EEPROM_ADDRESS
+    jp i2c_write_device
+
+
+test_eeprom_size:
     ; Write random bytes into the first page. Read all the remaining pages to check where it rolls
     ld hl, eeprom_write_buffer
     ; Parameters:
@@ -712,3 +721,4 @@ keyboard_start_msg_end:
 
     SECTION BSS
 buffer: DEFS 16
+buffer_backup: DEFS 8
