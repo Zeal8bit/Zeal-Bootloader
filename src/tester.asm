@@ -674,12 +674,15 @@ _test_keyboard_wait:
     pop de
     ld b, (hl)
     ld c, 0xf0  ; Release scan
+
+_test_keyboard_check_code:
     REPTI reg, b, c, b
     call test_keyboard_receive_byte
-    ; Received a byte, check if it's Q PS/2 keycode
+    ; Received a byte, check if it's the correct PS/2 keycode
     cp reg
-    jp nz, _test_keyboard_wait
+    jp nz, _test_keyboard_check_code
     ENDR
+
     ld a, '\b'
     push de
     call uart_send_one_byte
