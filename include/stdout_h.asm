@@ -8,7 +8,7 @@
     DEFINE STDOUT_H
 
     ; It is possible to choose either the UART or video board as the standard output
-    IF CONFIG_UART_AS_STDOUT
+    IF !CONFIG_ENABLE_VIDEO_BOARD
         INCLUDE "uart_h.asm"
 
         DEFC stdout_initialize = uart_initialize
@@ -35,20 +35,31 @@
             DEFM  0x1b, "[0m"
         ENDM
 
-    ELSE ; !CONFIG_UART_AS_STDOUT
+    ELSE ; CONFIG_ENABLE_VIDEO_BOARD
 
+        ; In case we have the video board, it may be possible to switch back to
+        ; to the UART as standard output if the video board fails to boot.
         INCLUDE "video_h.asm"
         INCLUDE "keyboard_h.asm"
+        INCLUDE "uart_h.asm"
 
-        DEFC stdout_initialize = video_initialize
+        DEFC STDOUT_DRIVER_UART  = 0
+        DEFC STDOUT_DRIVER_VIDEO = 1
+
+        ; When the video board is enabled, we can fallback the standard input to UART
+        ; Parameters:
+        ;   A - New driver to select, STDOUT_DRIVER_UART OR STDOUT_DRIVER_VIDEO
+        EXTERN std_set_driver
+        EXTERN stdout_initialize
+        EXTERN stdout_write
+        EXTERN stdout_put_char
+        EXTERN stdout_newline
         DEFC stdout_autoboot   = video_autoboot
-        DEFC stdout_write      = video_write
-        DEFC stdout_put_char   = video_put_char
-        DEFC stdout_newline    = video_newline
-        DEFC stdin_get_char    = keyboard_next_char
-        DEFC stdin_has_char    = keyboard_has_char
-        DEFC stdin_set_synchronous = keyboard_set_synchronous
         DEFC stdout_prepare_menu = video_clear_screen
+
+        EXTERN stdin_get_char
+        EXTERN stdin_has_char
+        EXTERN stdin_set_synchronous
 
         ; Use a prefix for the colors
         MACRO YELLOW_COLOR _

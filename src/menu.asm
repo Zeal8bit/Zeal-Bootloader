@@ -13,6 +13,8 @@
         EXTERN newline
         EXTERN test_hardware
         EXTERN format_eeprom
+        EXTERN video_board_flash
+        EXTERN video_wait_recovery
 
         SECTION BOOTLOADER
 
@@ -161,9 +163,9 @@ print_bc_hex:
         ld a, c
         jp print_a_hex
 
-        ; Print in hex the 8-bit value from A on the UART
+        ; Print, in hex, the 8-bit value in register A
         ; Parameters:
-        ;   A - Value to print on the UART
+        ;   A - Value to print on the standard output
         ; Returns:
         ;   None
         ; Alters:
@@ -219,10 +221,12 @@ process_menu_choice:
         jp z, menu_delete_entry
         cp 's'
         jp z, menu_save_new_entry
-    IF CONFIG_UART_AS_STDOUT
         cp 'b'
         jp z, menu_change_baudrate
-    ENDIF
+    IF CONFIG_ENABLE_VIDEO_BOARD
+        cp 'v'
+        jp z, menu_flash_video_board
+    ENDIF ; CONFIG_ENABLE_VIDEO_BOARD
         cp 'f'
         jp z, menu_flash_rom
     IF CONFIG_ENABLE_TESTER
@@ -292,42 +296,11 @@ _menu_flash_rom_addr:
         ld e, d
         ld d, c
         push de
-_menu_flash_ask_size:
-        ; Ask for the size to load now
-        PRINT_STR(binary_size_str)
-        ld hl, buffer
-        call menu_read_input
-        ld hl, buffer
-        call parse_hex
+_menu_flash_ask_binary:
+        ; Receive the binary file (size will be asked) in RAM, at 0x80000
+        call receive_binary
         or a
-        jr nz, _menu_flash_ask_size
-        ; Check that the size is not 0!
-        ld a, c
-        or d
-        or e
-        jr z, _menu_flash_ask_size
-        ; As we have 512KB of RAM, but 16KB are mapped currently for the bootloader,
-        ; make sure the given size doesn't exceed 512 - 16 = 496KB <=> CD <= 0x07c0
-        ; Even though the flash is 256KB big, the hardware supports flash up to 512KB,
-        ; so keep the code like this for any NOR flash.
-        ld h, c
-        ld l, d
-        push de
-        ld de, 0x7c1
-        xor a
-        sbc hl, de
-        pop de
-        jp nc, _menu_flash_ask_size
-        ; Print a message to send a file
-        push bc
-        push de
-        PRINT_STR(binary_send_str)
-        pop de
-        pop bc
-        ; Receive a file in RAM, at physical address 0x80000.
-        ; Parameters:
-        ;       CDE - Size of the file to receive
-        call uart_receive_big_file
+        jr nz, _menu_flash_ask_binary
         ; Print a message saying flash is in progress
         push bc
         push de
@@ -365,7 +338,115 @@ _menu_flash_rom_zero:
         ld d, a
         ld e, a
         push de
-        jr _menu_flash_ask_size
+        jr _menu_flash_ask_binary
+
+
+    IF CONFIG_ENABLE_VIDEO_BOARD
+
+        ; Routine to flash the video board with a binary file.
+        ; This routine:
+        ;   - Asks for a binary size on the standard input
+        ;   - Asks for the recovery mode to be switched on
+        ;   - Flashes the binary
+        ;   - Waits for a hard reboot/power off
+        ; Routine called when "Flash the video board" is selected from the menu.
+        ; Parameters:
+        ;   Z flag - This function is called from the menu, all the messages will be outputed.
+        ;   NZ flag - This function is called from recovery, some messages won't be shown.
+        PUBLIC menu_flash_video_board
+menu_flash_video_board:
+        push af
+        ; If called from recovery, do not show the "hexadecimal" warning notice
+        jr nz, _menu_flash_video_board_binary
+        PRINT_STR(new_entry_notice_str)
+        ; Ask for the size of the binary
+_menu_flash_video_board_binary:
+        call receive_binary
+        or a
+        jr nz, _menu_flash_video_board_binary
+        ; Get back the flags from the stack but wait before testing them
+        pop af
+        push bc
+        push de
+        ; If we are already in the recovery, do not ask to switch
+        jr nz, _menu_flash_video_board_recovery
+        PRINT_STR(video_board_switch)
+        call video_wait_recovery
+_menu_flash_video_board_recovery:
+        PRINT_STR_UART(flashing_flash_str)
+        pop de
+        pop bc
+        ; Flash the received file to the video board
+        ; Parameters:
+        ;       CDE - Size of the data to flash
+        call video_board_flash
+        or a
+        ; Error if A is not 0
+        jr z, _menu_flash_video_board_reboot
+        PRINT_STR_UART(flash_erase_error_str)
+_menu_flash_video_board_reboot:
+        PRINT_STR_UART(video_board_power_off)
+_menu_wait_reboot:
+        jr _menu_wait_reboot
+
+        PUBLIC video_board_switch
+        PUBLIC video_board_switch_end
+video_board_switch: DEFM "Press the recovery button on the video board to start flashing\r\n"
+video_board_switch_end:
+video_board_power_off: DEFM "Please power off the board\r\n"
+video_board_power_off_end:
+
+    ENDIF
+
+        ; Helper routine to ask for a size between 1 and 496KB, print a message and receive a binary
+        ; Parameters:
+        ;   None
+        ; Returns:
+        ;   CDE - 24-bit parsed size
+        ;   A - 0 on success, non-zero on failure
+        ; Alters:
+        ;   A, BC, HL, DE, `buffer`
+receive_binary:
+        PRINT_STR(binary_size_str)
+        ld hl, buffer
+        call menu_read_input
+        ld hl, buffer
+        call parse_hex
+        or a
+        ret nz
+        ; Check that the size is not 0!
+        ld a, c
+        or d
+        or e
+        jr z, _receive_binary_error
+        ; As we have 512KB of RAM, but 16KB are mapped currently for the bootloader,
+        ; make sure the given size doesn't exceed 512 - 16 = 496KB <=> CD <= 0x07c0
+        ; Even though the flash is 256KB big, the hardware supports flash up to 512KB,
+        ; so keep the code like this for any NOR flash.
+        ld h, c
+        ld l, d
+        push de
+        ld de, 0x7c1
+        xor a
+        sbc hl, de
+        pop de
+        jr nc, _receive_binary_error
+        ; Success, print a message and return 0
+        ; Print a message to send a file
+        push bc
+        push de
+        PRINT_STR(binary_send_str)
+        pop de
+        pop bc
+        ; Receive a file in RAM, at physical address 0x80000.
+        ; Parameters:
+        ;       CDE - Size of the file to receive
+        ; Returns:
+        ;       A - 0 (always)
+        jp uart_receive_big_file
+_receive_binary_error:
+        inc a
+        ret
 
 
         ; Routine called when "Change baudrate" is selected. This is useful even if the
@@ -816,7 +897,7 @@ flash_erase_success_str:
 flash_erase_success_str_end:
 flash_erase_error_str:
         RED_COLOR()
-        DEFM "Error while writing to flash"
+        DEFM "Error while flashing binary"
         END_COLOR()
 flash_erase_error_str_end:
 system_table_full_str:
@@ -878,12 +959,11 @@ advanced_msg:
         DEFM "a - Add a new entry\r\n"
         DEFM "d - Delete an existing entry\r\n"
         DEFM "s - Save configuration to flash\r\n"
-    IF CONFIG_UART_AS_STDOUT
-        DEFM "b - Change baudrate\r\n"
-    ELSE ; VIDEO as stdout
-        DEFM "b - Change UART baudrate (for sending files)\r\n"
-    ENDIF ; CONFIG_UART_AS_STDOUT
+        DEFM "b - Change UART baudrate\r\n"
         DEFM "f - Flash/Program the ROM\r\n"
+    IF CONFIG_ENABLE_VIDEO_BOARD
+        DEFM "v - Flash the video board\r\n"
+    ENDIF
         DEFM "q - Quick format I2C EEPROM (ZealFS)\r\n"
     IF CONFIG_ENABLE_TESTER
         DEFM "t - Test hardware\r\n"

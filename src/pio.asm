@@ -5,13 +5,13 @@
     INCLUDE "config.asm"
     INCLUDE "pio_h.asm"
 
-    IF CONFIG_UART_AS_STDOUT
-        DEFC IO_PIO_SYSTEM_INT_MASK = ~(1 << IO_UART_RX_PIN) & 0xff
-        DEFC int_handler = uart_int_handler
-    ELSE ; !CONFIG_UART_AS_STDOUT
+    IF CONFIG_ENABLE_VIDEO_BOARD
         DEFC IO_PIO_SYSTEM_INT_MASK = ~(1 << IO_KEYBOARD_PIN) & 0xff
         DEFC int_handler = keyboard_int_handler
-    ENDIF ; CONFIG_UART_AS_STDOUT
+    ELSE ; !CONFIG_ENABLE_VIDEO_BOARD
+        DEFC IO_PIO_SYSTEM_INT_MASK = ~(1 << IO_UART_RX_PIN) & 0xff
+        DEFC int_handler = uart_int_handler
+    ENDIF ; CONFIG_ENABLE_VIDEO_BOARD
 
     EXTERN int_handlers_table
     EXTERN uart_int_handler

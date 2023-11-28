@@ -5,9 +5,10 @@
     IFNDEF CONFIG_H
     DEFINE CONFIG_H
 
-; When set, the UART will be used as the standard output. When not set or set to 0, the video driver will
-; be used. The UART driver will still be used to receive files.
-DEFC CONFIG_UART_AS_STDOUT = 1
+; When set, the video board will be used as the default standard output. In that case,
+; the UART will still be used for receiving files and sending some info messages.
+; If not set, the UART driver will the standard output.
+DEFC CONFIG_ENABLE_VIDEO_BOARD = 1
 
 ; When set, the Zeal logo will be shown on screen, this takes more RAM at runtime but won't affect the
 ; OS or program running after the bootloader as the modified tiles are saved and restored.

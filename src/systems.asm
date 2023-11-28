@@ -71,7 +71,7 @@ _sys_table_get_first_loop:
     ;   No return
     PUBLIC sys_table_boot_entry
 sys_table_boot_entry:
-  IF !CONFIG_UART_AS_STDOUT
+  IF CONFIG_ENABLE_VIDEO_BOARD
     call video_unload_assets
   ENDIF
     ; Jump to the physical address directly
@@ -231,7 +231,7 @@ _sys_table_get_first_empty_found:
     ;   -
     PUBLIC sys_boot_from_ram
 sys_boot_from_ram:
-  IF !CONFIG_UART_AS_STDOUT
+  IF CONFIG_ENABLE_VIDEO_BOARD
     call video_unload_assets
   ENDIF
     ; The user's program is in RAM page 0 (0x80000)

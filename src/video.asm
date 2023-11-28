@@ -4,15 +4,17 @@
 
     INCLUDE "config.asm"
     INCLUDE "mmu_h.asm"
-    INCLUDE "uart_h.asm"
+    INCLUDE "stdout_h.asm"
     INCLUDE "pio_h.asm"
     INCLUDE "video_h.asm"
     INCLUDE "keyboard_h.asm"
 
     SECTION BOOTLOADER
 
-    EXTERN keyboard_has_char
-    EXTERN keyboard_get_char
+    EXTERN keyboard_get_char_nonblocking
+    EXTERN pio_disable_interrupt
+    EXTERN video_is_in_recovery
+    EXTERN menu_flash_video_board
 
     DEFC DEFAULT_VIDEO_MODE = VID_MODE_TEXT_640
     DEFC DEFAULT_CURSOR_BLINK = 30
@@ -24,7 +26,6 @@
     ENDM
 
 
-
     ; Initialize the video card
     ; Parameters:
     ;   None
@@ -34,6 +35,10 @@
     ;   A
     PUBLIC video_initialize
 video_initialize:
+    ; If the video board is in recovery mode do not initialize anything
+    call video_is_in_recovery
+    jr z, _video_initialize_switch
+
     ; Map the text controller to the banked I/O
     xor a
     out (IO_MAPPER_BANK), a
@@ -69,6 +74,13 @@ video_initialize:
     out (IO_TEXT_CTRL_REG), a
     ret
 
+    ; Recovery mode, switch to UART mode
+_video_initialize_switch:
+    ; Disable interrupts on the PIO
+    call pio_disable_interrupt
+    ld a, STDOUT_DRIVER_UART
+    jp std_set_driver
+
 
     ; Print the given bytes on screen
     ; Parameters:
@@ -101,32 +113,34 @@ _video_write_loop:
 
 
     ; Routine showing the autoboot message and waiting for a keypress.
+    ; If the video board is in recovery mode, propose to flash it, this function won't
+    ; return in that case.
     ; Returns:
     ;   A - 0 if autoboot, 1 if key pressed
     PUBLIC video_autoboot
 video_autoboot:
-    ; Print the autoboot message
+    ; Check if the video board is in recovery mode
+    call video_is_in_recovery
+    jr z, video_recovery_flash
+    ; Not in recovery mode, continue booting normally, print the autoboot message
     ld hl, boot_message
     ld bc, boot_message_end - boot_message
     call video_write
-    ASSERT(CONFIG_AUTOBOOT_DELAY_SECONDS * 60 < 0x10000)
+    ASSERT(CONFIG_AUTOBOOT_DELAY_SECONDS * 59 < 0x10000)
     ; Wait CONFIG_AUTOBOOT_DELAY_SECONDS seconds while checking keyboard input
-    ; We will wait (CONFIG_AUTOBOOT_DELAY_SECONDS * 60) v-blanks since the refresh rate is 60Hz
-    ; TODO: Use the V-blank interrupts
-    ld hl, CONFIG_AUTOBOOT_DELAY_SECONDS * 60
+    ; We will wait (CONFIG_AUTOBOOT_DELAY_SECONDS * 59) v-blanks since the refresh rate is 60Hz.
+    ; Keep one less v-blank to compensate the instructions we are executing.
+    ld hl, CONFIG_AUTOBOOT_DELAY_SECONDS * 59
     ; Save the previous control status register in C
     ; This will let us check the edge and not the level of the v-blank
     xor a
 _video_autoboot_loop:
     ld c, a ; previous ctrl status in C
-    ; Check if any character is ready
-    ; Preserves HL and C
-    call keyboard_has_char
-    or a
-    jr z, _video_autoboot_loop_continue
-    ; A character was received on the keyboard, check if it's the ESC key
-    ; Preserves HL and C
-    call keyboard_get_char
+    ; Preserves C
+    push hl
+    call keyboard_get_char_nonblocking
+    pop hl
+    ; If A was not valid, it won't be equal to KB_ESC, so no need to check validity
     sub KB_ESC
     ; If it's not the ESC key, ignore it and continue the loop
     jr nz, _video_autoboot_loop_continue
@@ -157,6 +171,22 @@ _video_autoboot_loop_continue:
 boot_message: DEFM "Booting...\n\nPress ESC key to enter menu"
 boot_message_end:
 
+    ; Function called when the video mode is in recovery mode, the user
+    ; will be asked to send a binary to flash.
+    ; Never returns
+video_recovery_flash:
+    ; The UART interrupts are already disabled because...never initialized
+    PRINT_STR_UART(recovery_detected)
+    ; Clear the Z flag before jumping to this routine to mark that we are already in
+    ; recovery mode
+    or 1
+    jp menu_flash_video_board
+
+
+recovery_detected:
+    DEFM "Recovery mode detected on the video board, switched to UART mode\r\n"
+    DEFM 0x1b, "[1;33mTo flash the video board firmware, please specify the size in hexadecimal:", 0x1b, "[0m\r\n"
+recovery_detected_end:
 
     ; Print a single byte on the screen
     ; Parameters:
@@ -293,7 +323,6 @@ video_clear_screen:
     ; Make the cursor blink every 30 frames (~500ms)
     ld a, DEFAULT_CURSOR_BLINK
     out (IO_TEXT_CURS_TIME), a
-
 
     ; Save the current mapping
     MMU_GET_PAGE_NUMBER(MMU_PAGE_1)

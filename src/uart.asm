@@ -34,8 +34,6 @@ uart_initialize:
         ret
 
 
-    IF CONFIG_UART_AS_STDOUT
-
         ; Function called everytime the menu is about to be shown, do nothing in the case of the UART.
         PUBLIC uart_clear_screen
 uart_clear_screen:
@@ -216,8 +214,6 @@ _uart_dequeue_available:
         pop hl
         ret
 
-    ENDIF ; CONFIG_UART_AS_STDOUT
-
 
         PUBLIC uart_disable_fifo
 uart_disable_fifo:
@@ -374,7 +370,7 @@ _uart_receive_next_byte:
         ; Parameters:
         ;       CDE - Size of the file to receive (maximum 496KB)
         ; Returns:
-        ;       None
+        ;       A - 0
         ; Alters:
         ;       A
         PUBLIC uart_receive_big_file
@@ -436,6 +432,7 @@ uart_receive_big_file_end:
         pop de
         pop bc
         pop hl
+        xor a
         ret
 
 

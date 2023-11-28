@@ -36,10 +36,12 @@ bootloader_entry:
         ldir
 
         call sys_table_init
-        call stdout_initialize
         ; UART will be used to receive files in all cases
         call uart_initialize
         call pio_initialize
+    IF CONFIG_ENABLE_VIDEO_BOARD
+        call stdout_initialize
+    ENDIF ; CONFIG_ENABLE_VIDEO_BOARD
 
         ; Ready to send and receive data over UART, show welcome message
         ld hl, start_message

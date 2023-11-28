@@ -93,7 +93,7 @@ int_handlers_table:
         ; Section containing the list of systems registered that we can boot
         ; It must be aligned on 4KB as the SST39SF0x0 NOR Flashes can only erase
         ; sectors of 4KB.
-        ; Thus the sections above (code) must not be bigger than 4KB. If more space
+        ; Thus the sections above (code) must not be bigger than 8KB. If more space
         ; is needed, move this section further and adapt the code.
         SECTION SYS_TABLE
         ORG 0x2000

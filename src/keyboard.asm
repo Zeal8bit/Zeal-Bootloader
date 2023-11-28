@@ -9,6 +9,79 @@
 
     SECTION BOOTLOADER
 
+    ; Receive a character from the keyboard, non-blocking version
+    ; Returns:
+    ;   A - 0 if no valid character was received, character value else
+    ; Alters:
+    ;       A, B, HL, DE
+    PUBLIC keyboard_get_char_nonblocking
+keyboard_get_char_nonblocking:
+    ld hl, received
+    ld b, 0
+    ; Atomic test and set
+    di
+    ld a, (hl)
+    ld (hl), b
+    ei
+    or a
+    ret z
+    ; Make HL point to the 'flag' variable
+    inc hl
+    ; Set a flag if release key
+    cp KB_RELEASE_SCAN
+    jr z, _release_scan_received
+    ; Check if we received a release scan previously
+    ld b, (hl)
+    ; Check if flag is 0
+    inc b
+    dec b
+    jr nz, _flag_not_zero
+    ; Flag is not 0, we just received a real character, parse it
+    ; Check if it is a printable character
+    cp KB_PRINTABLE_CNT - 1
+    jp nc, _special_code ; jp nc <=> A >= KB_PRINTABLE_CNT - 1
+    ; Save the scan size in B
+    ld hl, base_scan
+    ld b, base_scan_end - base_scan
+    jr _get_from_scan
+_special_code:
+    ; Special character is still in A
+    sub KB_EXTENDED_SCAN
+    ; Ignore extended scan characters for now, return 0
+    ret z
+    ; We just subtracted KB_EXTENDED_SCAN, add it back
+    add KB_EXTENDED_SCAN-KB_SPECIAL_START
+    ld hl, special_scan
+    ld b, special_scan_end - special_scan
+_get_from_scan:
+    ; Check if there would be an overflow
+    cp b
+    ; If there no carry, A is equal or bigger than the length, consider this
+    ; an invalid character, return 0
+    jr nc, _overflow_ret_zero
+    ; Get the value of A from the scan table pointed by HL
+    add l
+    ld l, a
+    adc h
+    sub l
+    ld h, a
+    ld a, (hl)
+    ret
+_overflow_ret_zero:
+    xor a
+    ret
+_flag_not_zero:
+    ; Clear the flag and ignore the current character, return 0
+    xor a
+    ; Fall-through
+_release_scan_received:
+    ; Set the flag to a non-zero value
+    ld (hl), a
+    ; Return not-valid character
+    xor a
+    ret
+
+
     ; Receive a character from the keyboard (synchronous, blocking)
     ; Parameters:
     ;       None
@@ -18,59 +91,17 @@
     ;       A, B, DE
     PUBLIC keyboard_next_char
 keyboard_next_char:
+    ; Clear the previously received keys
     xor a
     ld (received), a
-
-    PUBLIC keyboard_get_char
-keyboard_get_char:
-    ld de, received
-
-_keyboard_get_char_loop:
-    ld a, (de)
-    or a
-    jr z, _keyboard_get_char_loop
-    ; Check if it's release key
-    cp KB_RELEASE_SCAN
-    jr z, _release_scan
-    ; Character is not a "release command"
-    ; Check if the character is a printable char
     push hl
-    cp KB_PRINTABLE_CNT - 1
-    jp nc, _special_code ; jp nc <=> A >= KB_PRINTABLE_CNT - 1
-    ; Save the scan size in B
-    ld hl, base_scan
-    ld b, base_scan_end - base_scan
-    jr get_from_scan
-_special_code:
-    ; Special character is still in A
-    cp KB_EXTENDED_SCAN
-    jr z, _pop_ret
-    add -KB_SPECIAL_START
-    ld hl, special_scan
-    ld b, special_scan_end - special_scan
-get_from_scan:
-    ; Check if there would be an overflow
-    cp b
-    ; If there no carry, A is equal or bigger than the length
-    jr nc, _overflow_pop_continue
-    add l
-    ld l, a
-    adc h
-    sub l
-    ld h, a
-    ld a, (hl)
-_pop_ret:
+_keyboard_next_char_loop:
+    call keyboard_get_char_nonblocking
+    or a
+    ; If character is invalid, continue the loop
+    jr z, _keyboard_next_char_loop
     pop hl
     ret
-_overflow_pop_continue:
-    pop hl
-    jr _keyboard_get_char_loop
-
-_release_scan:
-    ; Ignore the next character
-    call keyboard_next_char
-    ; Return the next character
-    jp keyboard_next_char
 
 base_scan:
         DEFB 0,   0,    0,   0,   0,   0,   0, 0, 0,   0,    0,   0,   0, '\t', '`', 0
@@ -121,3 +152,4 @@ keyboard_int_handler:
 
     SECTION BSS
 received: DEFS 1
+flag: DEFS 1

@@ -21,8 +21,8 @@ ifeq ($(CONFIG_ENABLE_TESTER),1)
 	FILES += tester.asm
 endif
 
-ifneq ($(CONFIG_UART_AS_STDOUT),1)
-	FILES += video.asm keyboard.asm
+ifeq ($(CONFIG_ENABLE_VIDEO_BOARD),1)
+	FILES += video.asm video_board.asm keyboard.asm stdout.asm
 endif
 
 define FIND_ADDRESS =
