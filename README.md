@@ -5,30 +5,39 @@
     <a href="https://opensource.org/licenses/Apache-2.0">
         <img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="Licence" />
     </a>
-    <p align="center">A simple bootloader entirely written in Z80 assembly, for Zeal 8-bit Computer, a homebrew 8-bit computer based on a Z80 CPU.</p>
+    <p align="center">A bootloader entirely written in Z80 assembly, for Zeal 8-bit Computer, a homebrew 8-bit computer based on a real Z80 CPU</p>
 </p>
 
 ## About this project
 
-The goal of this project is to provide a small bootloader for Zeal 8-bit Computer that lets us perform several operations directly from the computer itself, such as booting different operating systems, flashing the ROM, testing the hardware, without the need of any external devices.
+The goal of this project is to provide a compact bootloader for Zeal 8-bit Computer that lets us perform several operations directly from the computer itself, such as booting different operating systems, flashing the ROM, testing the hardware, etc..., without the need of any external devices.
+
+## Screenshots
+
+<p align="center">
+    <img src="img/menu_uart.png" alt="Zeal Bootloader menu" />
+    <div align="center">Zeal 8-bit Bootloader using the UART</div>
+</p>
+<p align="center">
+    <img src="img/menu_video.png" alt="Zeal Bootloader menu" />
+    <div align="center">Zeal 8-bit Bootloader using Zeal 8-bit Video Card</div>
+</p>
 
 ## Features
 
-<p align="center">
-    <img src="img/menu.png" alt="Zeal Bootloader menu" />
-</p>
-
 As you can see from the menu itself, several feature have been implemented:
 
-* Communication over UART (no need for the video board)
-* 5 seconds auto-boot on startup
+* Communication over UART or over the video board¹
+* Auto-boot on startup after after a few seconds¹
 * Up to 9 operating systems or programs can be set up to boot from the menu. In the example above, only one entry is present: Zeal 8-bit OS. The numbers between the parenthesis represent the physical address (in ROM) and the virtual address respectively. In the output above, Zeal 8-bit OS is flashed at address **0x4000** in the ROM, it will be mapped at virtual address **0x0000** when booted.
-* Program can be sent through UART, and booted **directly**. No need to flash the ROM. This is handy for development when testing a program.
+* Program can be sent through UART, and booted **directly**. No need to flash the ROM, handy for development and testing programs.
 * New entries can be added as bootable systems, directly from the bootloader itself.
-* Symmetrically, entries can be deleted directly from the bootloader. Note that it is not possible to delete all entries, there must at least be one remaining entry at all time.
+* Entries can be deleted directly from the bootloader. Note that it is not possible to delete all entries, there must at least be one remaining entry at all time.
 * Buffered changes. To prevent mistakes when adding and deleting entries, the changes are first saved to RAM. The changes can then be flushed (**s** option) or discard (reboot the system).
-* Baudrate can be changed for the current bootloader session. Handy if there are corrupted data when transferring programs over UART.
-* Test Zeal 8-bit Computer hardware. This includes tests for the RAM size, the ROM size, the I2C EEPROM, the I2C RTC, and the PS/2 keyboard.
+* Baudrate can be changed for the current bootloader session (not saved after a reboot).
+* Test Zeal 8-bit Computer hardware: including RAM size, Flash/ROM size, I2C EEPROM, I2C RTC, and PS/2 keyboard.
+
+¹: These options are configurable via the `config.asm` file.
 
 ## Building the project
 
@@ -43,16 +52,22 @@ At the moment, the project has only been assembled on Linux (Ubuntu 20.04 and 22
 
 To install z88dk, please [check out their Github project](https://github.com/z88dk/z88dk).
 
+### Configuration
+
+Before building the bootloader, open and modify, if necessary, the configuration file `include/config.asm`.
+
+In this file, any macro that is not set (commented) or set to 0 will be considered disabled.
+
 ### Building
 
-To build the bootloader, simply use the command:
+After the configuration is saved, you can build the bootloader thanks to the command:
 ```
 make
 ```
 
-After compiling, the folder `build/` should contain the binary `bootloader.bin` and `bootloader.dump`. The first one is the program itself, whereas the second is a text file containing the disassembled binary with debug symbols.
+After compiling, the folder `build/` should contain the binary `bootloader.bin` and `bootloader.map`. The first one is the program itself, whereas the second is a text file containing all the (debug) symbols of the binary.
 
-That dump is only useful when debugging the bootloader (mainly with [Zeal 8-bit Computer emulator](https://github.com/Zeal8bit/Zeal-WebEmulator)).
+That map file is only useful when debugging the bootloader, mainly with [Zeal 8-bit Computer emulator](https://github.com/Zeal8bit/Zeal-WebEmulator).
 
 ## Transferring data over UART
 

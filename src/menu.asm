@@ -1,9 +1,11 @@
-; SPDX-FileCopyrightText: 2022 Zeal 8-bit Computer <contact@zeal8bit.com>
+; SPDX-FileCopyrightText: 2022-2024 Zeal 8-bit Computer <contact@zeal8bit.com>
 ;
 ; SPDX-License-Identifier: Apache-2.0
+
+        INCLUDE "config.asm"
         INCLUDE "mmu_h.asm"
-        INCLUDE "video_h.asm"
         INCLUDE "sys_table_h.asm"
+        INCLUDE "stdout_h.asm"
         INCLUDE "uart_h.asm"
 
         DEFC BUFFER_SIZE = 32
@@ -16,25 +18,32 @@
 
         PUBLIC bootloader_menu
 bootloader_menu:
-        call uart_disable_fifo
+        call stdout_prepare_menu
+        call stdin_set_synchronous
         ; Print the entering menu message
         ld hl, menu_msg
         ld bc, menu_msg_end - menu_msg
-        call uart_send_bytes
+        call stdout_write
         ; Populate our "systems" table while printing each entry
         call populate_systems
         ; Show the advanced options
         ld hl, advanced_msg
         ld bc, advanced_msg_end - advanced_msg
-        call uart_send_bytes
+        call stdout_write
         ; Wait for the user input
-        call uart_receive_one_byte
+        call stdin_get_char
         ; Print is back
         push af
-        call uart_send_one_byte
-        call newline
+        call stdout_put_char
+        call stdout_newline
         pop af
         call process_menu_choice
+    IF CONFIG_ACK_CONTINUE
+        ld hl, ack_str
+        ld bc, ack_str_end - ack_str
+        call stdout_write
+        call stdin_get_char
+    ENDIF
         ; No matter what the result is, print back the main menu
         jr bootloader_menu
 
@@ -61,10 +70,10 @@ populate_systems_loop:
         ; Print C in ASCII followed by ' - Boot '
         ld a, c
         add '0'
-        call uart_send_one_byte
+        call stdout_put_char
         ld hl, separator
         ld bc, separator_end - separator
-        call uart_send_bytes
+        call stdout_write
         ; Print the actual entry now
         pop hl
         push hl
@@ -101,12 +110,12 @@ populate_systems_empty:
         ;   A, HL, BC, DE
 print_entry:
         ld bc, SYS_NAME_MAX_LENGTH
-        call uart_send_bytes
+        call stdout_write
         ; HL is now pointing to the physical address
         push hl
         ld hl, parenthesis
         ld bc, parenthesis_end - parenthesis
-        call uart_send_bytes
+        call stdout_write
         ; Print the physical address
         pop hl
         ld c, (hl)
@@ -120,7 +129,7 @@ print_entry:
         push hl
         ld hl, arrow
         ld bc, arrow_end - arrow
-        call uart_send_bytes
+        call stdout_write
         pop hl
         ; Finally dereference the virtual address and print it
         ld c, (hl)
@@ -129,8 +138,8 @@ print_entry:
         call print_bc_hex
         ; Close parenthesis
         ld a, ')'
-        call uart_send_one_byte
-        jp newline
+        call stdout_put_char
+        jp stdout_newline
 
 
         ; Print 24-bit value in ABC on the UART
@@ -168,11 +177,11 @@ print_a_hex:
         rlca
         and 0xf
         call _byte_to_ascii_nibble
-        call uart_send_one_byte
+        call stdout_put_char
         ld a, e
         and 0xf
         call _byte_to_ascii_nibble
-        jp uart_send_one_byte
+        jp stdout_put_char
 _byte_to_ascii_nibble:
         ; If the byte is between 0 and 9 included, add '0'
         sub 10
@@ -210,21 +219,23 @@ process_menu_choice:
         jp z, menu_delete_entry
         cp 's'
         jp z, menu_save_new_entry
+    IF CONFIG_UART_AS_STDOUT
         cp 'b'
         jp z, menu_change_baudrate
+    ENDIF
         cp 'f'
         jp z, menu_flash_rom
-        IFDEF ENABLE_TESTER
+    IF CONFIG_ENABLE_TESTER
         cp 't'
         jp z, test_hardware
-        ENDIF ; ENABLE_TESTER
+    ENDIF ; CONFIG_ENABLE_TESTER
         cp 'q'
         jp z, format_eeprom
         ; Fall-through
 invalid_choice:
         ld hl, invalid_str
         ld bc, invalid_str_end - invalid_str
-        jp uart_send_bytes
+        jp stdout_write
 
 
         ; Routine called when the given choice is a number between [0,systems_count[
@@ -332,8 +343,11 @@ _menu_flash_ask_size:
         ; Flash the received file to the ROM(NOR Flash)
         call sys_table_flash_file_to_rom
         or a
-        ; Error is A is not 0
-        ret z
+        ; Error if A is not zero
+        jr nz, _flash_erase_error
+        PRINT_STR(success_str)
+        ret
+_flash_erase_error:
         PRINT_STR(flash_erase_error_str)
         ret
 _flash_and_reboot:
@@ -354,15 +368,16 @@ _menu_flash_rom_zero:
         jr _menu_flash_ask_size
 
 
-        ; Routine called when "Change baudrate" is selected
+        ; Routine called when "Change baudrate" is selected. This is useful even if the
+        ; standard output is the video, since we can receive files.
 menu_change_baudrate:
         PRINT_STR(baudrate_choice)
         ; Wait for the user input
-        call uart_receive_one_byte
+        call stdin_get_char
         ; Print it back
         push af
-        call uart_send_one_byte
-        call newline
+        call stdout_put_char
+        call stdout_newline
         pop af
         ; Convert the baudrate choice to the actual values
         cp '1'
@@ -379,6 +394,14 @@ menu_change_baudrate:
         jp z, uart_set_baudrate
         ; Invalid choice, ask again
         jp menu_change_baudrate
+baudrate_choice:
+        DEFM "1 - 57600\r\n"
+        DEFM "2 - 38400\r\n"
+        DEFM "3 - 19200\r\n"
+        DEFM "4 - 9600\r\n"
+        DEFM "\r\nChoose a baudrate [1-4]:"
+baudrate_choice_end:
+
 
         ; Routine called when "Load from UART" is selected
 menu_load_from_uart:
@@ -558,12 +581,12 @@ menu_delete_entry_valid:
         ; Print the rest of the buffer
         ld hl, buffer
         ld bc, 3
-        call uart_send_bytes
+        call stdout_write
         ; Wait for the answer
-        call uart_receive_one_byte
+        call stdin_get_char
         push af
-        call uart_send_one_byte
-        call newline
+        call stdout_put_char
+        call stdout_newline
         pop af
         ; Make sure the answer is between '1' and 'systems_count'
         sub '1'
@@ -609,7 +632,7 @@ menu_read_input:
         ; C contains the current size received
         ld c, 0
 _menu_read_input_loop:
-        call uart_receive_one_byte
+        call stdin_get_char
         cp '\b'
         jp z, _menu_read_input_backspace
         cp 0x7f ; DEL key
@@ -634,7 +657,7 @@ _menu_read_input_loop:
         ld (hl), a
         inc hl
         ld e, c
-        call uart_send_one_byte
+        call stdout_put_char
         ld c, e
         inc c
         jp _menu_read_input_loop
@@ -648,18 +671,18 @@ _menu_read_input_backspace:
         dec c
         ld e, c
         ld a, '\b'
-        call uart_send_one_byte
+        call stdout_put_char
         ld a, ' '
-        call uart_send_one_byte
+        call stdout_put_char
         ld a, '\b'
-        call uart_send_one_byte
+        call stdout_put_char
         ld c, e
         jp _menu_read_input_loop
 _menu_read_input_cr:
         ; Terminate the buffer
         ld (hl), 0
         ; Print a newline
-        jp newline
+        jp stdout_newline
 
 
         ; Calculate the length of a NULL-terminated string
@@ -772,14 +795,29 @@ _parse_not_hex_digit:
 
 
         ; Group together all the strings used in the routines above
+    IF CONFIG_ACK_CONTINUE
+ack_str:
+        DEFM "\r\nPress any key to return..."
+ack_str_end:
+    ENDIF
+success_str:
+        GREEN_COLOR()
+        DEFM "Success\r\n"
+        END_COLOR()
+success_str_end:
+
 invalid_str:
-        DEFM 0x1b, "[1;31mInvalid choice, please try again", 0x1b, "[0m"
+        RED_COLOR()
+        DEFM "Invalid choice, please try again"
+        END_COLOR()
 invalid_str_end:
 flash_erase_success_str:
         DEFM "Configuration saved successfully"
 flash_erase_success_str_end:
 flash_erase_error_str:
-        DEFM 0x1b, "[1;31mError while writing to flash", 0x1b, "[0m"
+        RED_COLOR()
+        DEFM "Error while writing to flash"
+        END_COLOR()
 flash_erase_error_str_end:
 system_table_full_str:
         DEFM "Systems table is full, consider deleting an entry first"
@@ -788,10 +826,16 @@ delete_entry_str:
         DEFM "Choose the entry to delete [1-"
 delete_entry_str_end:
 delete_entry_too_less:
-        DEFM 0x1b, "[1;31mOnly one entry remaining, cannot delete it", 0x1b, "[0m\r\n"
+        RED_COLOR()
+        DEFM "Only one entry remaining, cannot delete it"
+        END_COLOR()
+        DEFM "\r\n"
 delete_entry_too_less_end:
 new_entry_notice_str:
-        DEFM 0x1b, "[1;33mNumbers must be provided in hexadecimal", 0x1b, "[0m\r\n"
+        YELLOW_COLOR()
+        DEFM "Numbers must be provided in hexadecimal"
+        END_COLOR()
+        DEFM "\r\n"
 new_entry_notice_str_end:
 new_entry_name_str:
         DEFM "New entry name (max 32 chars): "
@@ -800,7 +844,10 @@ flash_rom_addr_str:
         DEFM "ROM address to flash, aligned on 4KB: "
 flash_rom_addr_str_end:
 flashing_flash_str:
-        DEFM 0x1b, "[1;33mFlashing in progress, do not turn off...", 0x1b, "[0m\r\n"
+        YELLOW_COLOR()
+        DEFM "Flashing in progress, do not turn off..."
+        END_COLOR()
+        DEFM "\r\n"
 flashing_flash_str_end:
 phys_addr_str:
         DEFM "22-bit physical address, aligned on 16KB: "
@@ -809,7 +856,10 @@ virt_dest_addr_str:
         DEFM "16-bit virtual address: "
 virt_dest_addr_str_end:
 aligned_addr_str:
-        DEFM  0x1b, "[1;31mAddress must be aligned on 16KB", 0x1b, "[0m\r\n"
+        YELLOW_COLOR()
+        DEFM  "Address must be aligned on 16KB"
+        END_COLOR()
+        DEFM "\r\n"
 aligned_addr_str_end:
 binary_size_str:
         DEFM "Binary size: "
@@ -821,28 +871,25 @@ booting_ram_str:
         DEFM "Booting from RAM\r\n"
 booting_ram_str_end:
 menu_msg:
-        DEFM "\r\n\r\nEntering menu. Please select an option:\r\n\r\n"
+        DEFM "\r\n\r\nPlease select an option:\r\n\r\n"
 menu_msg_end:
 advanced_msg:
         DEFM "p - Load program from UART\r\n"
         DEFM "a - Add a new entry\r\n"
         DEFM "d - Delete an existing entry\r\n"
         DEFM "s - Save configuration to flash\r\n"
+    IF CONFIG_UART_AS_STDOUT
         DEFM "b - Change baudrate\r\n"
+    ELSE ; VIDEO as stdout
+        DEFM "b - Change UART baudrate (for sending files)\r\n"
+    ENDIF ; CONFIG_UART_AS_STDOUT
         DEFM "f - Flash/Program the ROM\r\n"
         DEFM "q - Quick format I2C EEPROM (ZealFS)\r\n"
-IFDEF ENABLE_TESTER
+    IF CONFIG_ENABLE_TESTER
         DEFM "t - Test hardware\r\n"
-ENDIF
+    ENDIF
         DEFM "\r\nEnter your choice: "
 advanced_msg_end:
-baudrate_choice:
-        DEFM "1 - 57600\r\n"
-        DEFM "2 - 38400\r\n"
-        DEFM "3 - 19200\r\n"
-        DEFM "4 - 9600\r\n"
-        DEFM "\r\nChoose a baudrate [1-4]:"
-baudrate_choice_end:
 separator:
         DEFM " - Boot "
 separator_end:

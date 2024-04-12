@@ -6,10 +6,9 @@
     INCLUDE "video_h.asm"
     INCLUDE "pio_h.asm"
     INCLUDE "sys_table_h.asm"
-    INCLUDE "uart_h.asm"
+    INCLUDE "stdout_h.asm"
 
     EXTERN newline
-    EXTERN uart_send_one_byte
     EXTERN print_a_hex
 
     SECTION BOOTLOADER
@@ -82,16 +81,19 @@ _print_array_loop:
     push bc
     call print_a_hex
     ld a, ' '
-    call uart_send_one_byte
+    call stdout_put_char
     pop bc
     pop hl
     djnz _print_array_loop
-    call newline
+    call stdout_newline
     ret
 
 
 test_success:
-    DEFM 0x1b, "[1;32mSuccess", 0x1b, "[0m\r\n"
+    GREEN_COLOR()
+    DEFM "Success"
+    END_COLOR()
+    DEFM "\r\n"
 test_success_end:
 
 test_message:
@@ -101,10 +103,16 @@ test_terminated:
     DEFM "\r\nTests finished\r\n"
 test_terminated_end:
 read_error_msg:
-    DEFM 0x1b, "[1;31mRead error", 0x1b, "[0m\r\n"
+    RED_COLOR()
+    DEFM "Read error"
+    END_COLOR()
+    DEFM "\r\n"
 read_error_msg_end:
 write_error_msg:
-    DEFM 0x1b, "[1;31mWrite error", 0x1b, "[0m\r\n"
+    RED_COLOR()
+    DEFM "Write error"
+    END_COLOR()
+    DEFM "\r\n"
 write_error_msg_end:
 
 
@@ -276,7 +284,7 @@ _skip_zero:
     ld (hl), a
     ld hl, buffer
     ld bc, 3
-    call uart_send_bytes
+    call stdout_write
     PRINT_STR(nor_flash_detected)
 test_nor_flash_write:
     ; We will write a sector of the flash, to make sure we can write
@@ -439,7 +447,7 @@ _ram_skip_zero:
     ld (hl), a
     ld hl, buffer
     ld bc, 3
-    call uart_send_bytes
+    call stdout_write
     PRINT_STR(ram_detected)
     ret
 
@@ -530,7 +538,10 @@ date_msg:
 date_msg_end:
 
 rtc_warning_msg:
-    DEFM 0x1b, "[1;33mDisabled (no battery?)", 0x1b, "[0m\r\n"
+    RED_COLOR()
+    DEFM "Disabled (no battery?)"
+    END_COLOR()
+    DEFM "\r\n"
 rtc_warning_msg_end:
 
 
@@ -670,7 +681,7 @@ _test_keyboard_wait:
     or a
     jp z, test_keyboard_end
     push de
-    call uart_send_one_byte
+    call stdout_put_char
     pop de
     ld b, (hl)
     ld c, 0xf0  ; Release scan
@@ -685,7 +696,7 @@ _test_keyboard_check_code:
 
     ld a, '\b'
     push de
-    call uart_send_one_byte
+    call stdout_put_char
     pop de
     inc hl
     inc de

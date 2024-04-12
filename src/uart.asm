@@ -1,6 +1,8 @@
-; SPDX-FileCopyrightText: 2022 Zeal 8-bit Computer <contact@zeal8bit.com>
+; SPDX-FileCopyrightText: 2022-2024 Zeal 8-bit Computer <contact@zeal8bit.com>
 ;
 ; SPDX-License-Identifier: Apache-2.0
+
+        INCLUDE "config.asm"
         INCLUDE "uart_h.asm"
         INCLUDE "pio_h.asm"
         INCLUDE "mmu_h.asm"
@@ -8,8 +10,9 @@
 
         DEFC PINS_DEFAULT_STATE = IO_PIO_SYSTEM_VAL & ~(1 << IO_UART_TX_PIN)
         DEFC UART_FIFO_SIZE = 16
+        DEFC CPU_FREQ = 10000000
 
-        EXTERN int_handlers_table
+        EXTERN pio_disable_interrupt
 
         SECTION BOOTLOADER
         ; Initialize the PIO and the UART
@@ -28,49 +31,109 @@ uart_initialize:
         ld hl, uart_fifo
         ld (uart_fifo_wr), hl
         ld (uart_fifo_rd), hl
-        call pio_init_ports
         ret
 
 
-        ; Initialize the PIO system and user port
-pio_init_ports:
-        ; Set system port as bit-control
-        ld a, IO_PIO_BITCTRL
-        out (IO_PIO_SYSTEM_CTRL), a
-        ; Set the proper direction for each pin
-        ld a, IO_PIO_SYSTEM_DIR
-        out (IO_PIO_SYSTEM_CTRL), a
-        ; Set default value for all the (output) pins
-        ld a, IO_PIO_SYSTEM_VAL
-        out (IO_PIO_SYSTEM_DATA), a
-        ; Set interrupt vector to 2
-        ld a, 2
-        out (IO_PIO_SYSTEM_CTRL), a
-        ; Enable the interrupts globally for the system port
-        ld a, IO_PIO_ENABLE_INT
-        out (IO_PIO_SYSTEM_CTRL), a
-        ; Enable interrupts, for the required pins only
-        ld a, IO_PIO_SYSTEM_INT_CTRL
-        out (IO_PIO_SYSTEM_CTRL), a
-        ; Mask must follow
-        ld a, IO_PIO_SYSTEM_INT_MASK
-        out (IO_PIO_SYSTEM_CTRL), a
-        ; Initalize user port as input
-        ld a, IO_PIO_INPUT
-        out (IO_PIO_USER_CTRL), a
-        ld a, IO_PIO_DISABLE_INT
-        out (IO_PIO_USER_CTRL), a
+    IF CONFIG_UART_AS_STDOUT
 
-        ; Enable interrupts
-        ld a, int_handlers_table >> 8
-        ld i, a
-        im 2
-        ei
+        ; Function called everytime the menu is about to be shown, do nothing in the case of the UART.
+        PUBLIC uart_clear_screen
+uart_clear_screen:
         ret
 
+        DEFC MOVE_BACKWARD_COLS = seconds_message_end - seconds_message + 1
 
-        PUBLIC default_handler
-default_handler:
+        ; Routine showing the autoboot message and waiting for a keypress.
+        ; Returns:
+        ;   A - 0 if autoboot, 1 if key pressed
+        PUBLIC uart_autoboot
+uart_autoboot:
+        ; Prepare the escape sequence for moving cursor backward:
+        ;   ESC[#D where # is the number of columns to move backward
+        ld hl, escape
+        ld (hl), 0x1b   ; ESC
+        inc hl
+        ld (hl), '['
+        inc hl
+        ; Size of " ...seconds" message + 1, in ASCII
+        ld (hl), MOVE_BACKWARD_COLS / 10 + '0'
+        inc hl
+        ld (hl), MOVE_BACKWARD_COLS % 10 + '0'
+        inc hl
+        ld (hl), 'D'
+        ; Print the autoboot message
+        ld hl, boot_message
+        ld bc, boot_message_end - boot_message
+        call uart_send_bytes
+        ; Loop until E (not altered by uart_send_bytes) is 0 (included)
+        ld e, CONFIG_AUTOBOOT_DELAY_SECONDS + 1
+autoboot_loop:
+        ; Convert E - 1 to an ASCII character
+        ld a, e
+        add '0' - 1
+        call uart_send_one_byte
+        ; Send "seconds" word then
+        ld hl, seconds_message
+        ld bc, seconds_message_end - seconds_message
+        call uart_send_bytes
+        dec e
+        jp z, autoboot_loop_end
+        ; Wait a bit less than 1 second, should also check keypress or UART receive
+        push de
+        ld de, 900
+        call sleep_ms_check
+        pop de
+        ; Check if a character arrived
+        or a
+        ret nz
+        ; No character arrived, move the cursor backward down to the seconds count
+        ld hl, escape
+        ld bc, 5
+        call uart_send_bytes
+        jr autoboot_loop
+autoboot_loop_end:
+        ; No keypress, no UART receive, return 0
+        xor a
+        ret
+
+        ; Sleep for DE milliseconds while checking for a byte on the UART
+        ; Parameters:
+        ;   DE - Milliseconds
+        ; Returns:
+        ;   A - 0 no character received, non-zero else
+        ; Alters:
+        ;   A, DE, BC
+sleep_ms_check:
+_sleep_ms_again:
+        ; Divide by 1000 to get the number of T-states per milliseconds
+        ; 50 is the number of T-states below
+        ld bc, CPU_FREQ / 1000 / 50
+_sleep_ms_waste_time:
+        ; 50 T-states for the following, until 'jp nz, _zos_waste_time'
+        call uart_available_read
+        or a
+        ret nz
+        dec bc
+        ld a, b
+        or c
+        jp nz, _sleep_ms_waste_time
+        ; If we are here, a milliseconds has elapsed
+        dec de
+        ld a, d
+        or e
+        jp nz, _sleep_ms_again
+        ret
+
+boot_message:
+        DEFM "Press any key to enter menu. Booting automatically in "
+boot_message_end:
+seconds_message:
+        DEFM " seconds..."
+seconds_message_end:
+
+
+        PUBLIC uart_int_handler
+uart_int_handler:
         ex af, af'
         exx
         ; Triggered by UART RX pin
@@ -153,11 +216,13 @@ _uart_dequeue_available:
         pop hl
         ret
 
-        PUBLIc uart_disable_fifo
+    ENDIF ; CONFIG_UART_AS_STDOUT
+
+
+        PUBLIC uart_disable_fifo
 uart_disable_fifo:
-        ld a, IO_PIO_DISABLE_INT
-        out (IO_PIO_SYSTEM_CTRL), a
-        ret
+        jp pio_disable_interrupt
+
 
         ; Reset the UART FIFO
         ; Parameters:
@@ -209,8 +274,8 @@ uart_set_baudrate:
         ;   None
         ; Alters:
         ;   A, BC, D
-        PUBLIC newline
-newline:
+        PUBLIC uart_newline
+uart_newline:
         ; Print \r\n
         ld a, '\r'
         call uart_send_one_byte
@@ -256,7 +321,7 @@ _uart_send_next_byte:
         ;   A - ASCII byte to send on the UART
         ; Alters:
         ;   A, BC ,D
-        PUBLIc uart_send_one_byte
+        PUBLIC uart_send_one_byte
 uart_send_one_byte:
         ld b, a
         ; Set the baudrate in D
@@ -570,6 +635,7 @@ wait_tstates_next_bit_87_tstates:
         SECTION BSS
         ALIGN 16
 uart_fifo: DEFS UART_FIFO_SIZE
+escape: DEFS 8
 uart_fifo_wr: DEFS 2
 uart_fifo_rd: DEFS 2
 uart_fifo_size: DEFS 1

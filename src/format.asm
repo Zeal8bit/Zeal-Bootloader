@@ -3,13 +3,11 @@
 ; SPDX-License-Identifier: Apache-2.0
 
     INCLUDE "mmu_h.asm"
-    INCLUDE "video_h.asm"
     INCLUDE "pio_h.asm"
     INCLUDE "sys_table_h.asm"
-    INCLUDE "uart_h.asm"
+    INCLUDE "stdout_h.asm"
 
     EXTERN newline
-    EXTERN uart_send_one_byte
     EXTERN i2c_write_device
 
     DEFC I2C_EEPROM_ADDRESS = 0x50
@@ -20,11 +18,11 @@
 format_eeprom:
     PRINT_STR(size_choice)
     ; Wait for the user input
-    call uart_receive_one_byte
+    call stdin_get_char
     ; Print it back
     push af
-    call uart_send_one_byte
-    call newline
+    call stdout_put_char
+    call stdout_newline
     pop af
     ; Convert the baudrate choice to the actual values
     cp '0'
@@ -149,11 +147,17 @@ _sleep_ms_waste_time:
 
 
 success_msg:
-    DEFM 0x1b, "[1;32mSuccess", 0x1b, "[0m\r\n"
+    GREEN_COLOR()
+    DEFM "Success"
+    END_COLOR()
+    DEFM "\r\n"
 success_msg_end:
 
 write_error_msg:
-    DEFM 0x1b, "[1;31mI2C write error", 0x1b, "[0m\r\n"
+    RED_COLOR()
+    DEFM "I2C write error"
+    END_COLOR()
+    DEFM "\r\n"
 write_error_msg_end:
 
 size_choice:
