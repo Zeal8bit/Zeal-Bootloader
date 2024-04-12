@@ -1,13 +1,16 @@
-; SPDX-FileCopyrightText: 2022 Zeal 8-bit Computer <contact@zeal8bit.com>
+; SPDX-FileCopyrightText: 2022-2024 Zeal 8-bit Computer <contact@zeal8bit.com>
 ;
 ; SPDX-License-Identifier: Apache-2.0
+
+    INCLUDE "config.asm"
     INCLUDE "mmu_h.asm"
     INCLUDE "sys_table_h.asm"
 
     EXTERN __SYS_TABLE_head
+    EXTERN video_unload_assets
 
     DEFC CPU_FREQ = 10000000
-    DEFC RAM_CODE_DEST = 0xD500
+    DEFC RAM_CODE_DEST = 0xD600
 
     SECTION BOOTLOADER
 
@@ -68,6 +71,9 @@ _sys_table_get_first_loop:
     ;   No return
     PUBLIC sys_table_boot_entry
 sys_table_boot_entry:
+  IF !CONFIG_UART_AS_STDOUT
+    call video_unload_assets
+  ENDIF
     ; Jump to the physical address directly
     ld de, SYS_NAME_MAX_LENGTH
     add hl, de
@@ -225,6 +231,9 @@ _sys_table_get_first_empty_found:
     ;   -
     PUBLIC sys_boot_from_ram
 sys_boot_from_ram:
+  IF !CONFIG_UART_AS_STDOUT
+    call video_unload_assets
+  ENDIF
     ; The user's program is in RAM page 0 (0x80000)
     ld b, 0x80000 >> 14
     ex de, hl

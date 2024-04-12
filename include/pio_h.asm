@@ -12,7 +12,7 @@
     DEFC IO_PIO_DATA_B = 0xd1
     DEFC IO_PIO_CTRL_A = 0xd2
     DEFC IO_PIO_CTRL_B = 0xd3
- 
+
     ; PIO Modes
     DEFC IO_PIO_MODE0 = 0x0f
     DEFC IO_PIO_MODE1 = 0x4f
@@ -69,8 +69,5 @@
     ; * Active low signals
     ; * Provide a mask
     DEFC IO_PIO_SYSTEM_INT_CTRL = 0x90  | IO_PIO_CTRLW_INT
-
-    ; NOTE: 0 means monitored!
-    DEFC IO_PIO_SYSTEM_INT_MASK = ~(1 << IO_UART_RX_PIN) & 0xff
 
     ENDIF

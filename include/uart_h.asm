@@ -15,14 +15,10 @@
         ; Default baudrate for UART
         DEFC UART_BAUDRATE_DEFAULT = UART_BAUDRATE_57600
 
-        MACRO PRINT_STR label
-                ld hl, label
-                ld bc, label ## _end - label
-                call uart_send_bytes
-        ENDM
-
         ; Public routines
         EXTERN uart_initialize
+        EXTERN uart_autoboot
+        EXTERN uart_clear_screen
         EXTERN uart_send_bytes
         EXTERN uart_send_one_byte
         EXTERN uart_available_read
@@ -31,6 +27,6 @@
         EXTERN uart_receive_one_byte
         EXTERN uart_receive_big_file
         EXTERN uart_set_baudrate
-        EXTERN newline
+        EXTERN uart_newline
 
         ENDIF
