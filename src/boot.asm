@@ -99,3 +99,9 @@ start_message_end:
 
         SECTION BSS
         ORG 0xC000
+
+    IF CONFIG_ENABLE_TESTER
+        PUBLIC tester_pattern
+; Reserve the first 8 bytes for the tester
+tester_pattern: DEFS 8
+    ENDIF

@@ -360,12 +360,21 @@ nor_flash_detected_end:
     ; ==================== R A M   T E S T S ======================== ;
     ; =============================================================== ;
 
+    EXTERN tester_pattern
+
+pattern: DEFB 0xaf, 0x41, 0xa9, 0x5e, 0xac, 0xc2, 0x1, 0x87
+
 test_ram:
     PRINT_STR(ram_start_msg)
+    ; Fill the pattern to detect in RAM
+    ld bc, 8
+    ld de, tester_pattern
+    ld hl, pattern
+    ldir
     ; Try to detect the size of the RAM. The flash is mapped from 512KB to 1MB
     ; (excluded) on the physical memory mapping.
-    ; If at any time, the first 8 bytes of any page is the same as the the RAM
-    ; page (3), then, the RAM is cycling, meaning we have reached the size limit.
+    ; If at any time, the first 8 bytes of any page is the same as the RAM page (3),
+    ; then, the RAM is cycling, meaning we have reached the size limit.
     ld a, 0x1f ; RAM starts at page 32
     ld b, 0 ; Number of "fake" RAM pages, i.e., pages not writable
 test_ram_size:
@@ -381,7 +390,7 @@ test_ram_size:
     ; Read back the result and restore data
     cp (hl)
     ld (hl), a ; doesn't alter flags
-    jp nz, test_ram_size_not_fake_page
+    jr nz, test_ram_size_not_fake_page
     ; Fake page, increment B
     inc b
 test_ram_size_not_fake_page:
