@@ -14,9 +14,8 @@
 
     SECTION BOOTLOADER
 
-    PUBLIC format_eeprom
-format_eeprom:
-    PRINT_STR(size_choice)
+
+get_char_and_print:
     ; Wait for the user input
     call stdin_get_char
     ; Print it back
@@ -24,6 +23,25 @@ format_eeprom:
     call stdout_put_char
     call stdout_newline
     pop af
+    ret
+
+    PUBLIC format_eeprom
+format_eeprom:
+    PRINT_STR(version_choice)
+    ; Wait for the user input
+    call get_char_and_print
+    ; Convert the baudrate choice to the actual values
+    cp '0'
+    ld c, 1
+    jr z, format_size
+    cp '1'
+    ld c, 2
+    jr nz, format_eeprom
+    ; ZealFSv2 choice, we have to prepare the header
+format_size:
+    push bc
+    PRINT_STR(size_choice)
+    call get_char_and_print
     ; Convert the baudrate choice to the actual values
     cp '0'
     ld b, 64
@@ -39,13 +57,17 @@ format_eeprom:
 
 format_size_b:
     call clear_buffer
+    ; Pop the filesystem version, keep the size
+    ld a, b
+    pop bc
+    ld b, a
     ; Write the header in the buffer
     ld hl, page
     ; Magic byte
     ld (hl), 'Z'
     inc hl
     ; File system version
-    ld (hl), 1
+    ld (hl), c
     inc hl
     ; Bitmap size, in 256-byte page unit. Divide B by 2 and store it.
     ; (= B * 1024 / 256 / 8 = B / 2)
@@ -53,13 +75,30 @@ format_size_b:
     rrca
     ld (hl), a
     inc hl
+    ; Check if v2, where bitmap size is 16-bit
+    dec c
+    jr z, v1_0
+    ld (hl), 0
+    inc hl
+v1_0:
+    inc c
     ; Free pages count, bitmap size (A) * 8 - 1 (first page allocated)
-    rlca
-    rlca
-    rlca
+    add a   ; x2
+    add a   ; x4
+    add a   ; x8
     dec a
     ld (hl), a
     inc hl
+    ; Again, check for ZealFSv2
+    dec c
+    jr z, v1_1
+    ld (hl), 0
+    inc hl
+    ; Populate the page size (0 = 256-byte)
+    ld (hl), 0
+    inc hl
+v1_1:
+    inc c
     ; Only modify the first byte of the bitmap, set it to 1.
     ld (hl), 1
     ; The rest can be skipped as the buffer has already been set to 0
@@ -77,9 +116,9 @@ format_size_b:
     ; We just wrote the first 64 bytes. We still have to write 256 - 64 bytes = 192 bytes
     ; These remaining bytes must be filled with 0s
     call clear_buffer
-    ; 3 * 64 = 192
+    ; 7 * 64 = 512 - 64 = 448
     ld b, page_end - reg_addr
-    ld c, 3
+    ld c, 7
     ld de, 6
 _format_empty_page:
     ; Wait 6 milliseconds
@@ -89,14 +128,17 @@ _format_empty_page:
     pop de
     pop bc
     ; Set the new physical address to write to
-    ld hl, reg_addr + 1 ; High byte always 0
-    ; C * 64 = C << 6 = C rotate right twice
-    ld a, c
-    rrca
-    rrca
-    ld (hl), a
-    ; Reposition HL to the 16-bit address
-    dec hl
+    ; C * 64 = Shift C right twice. Put MSB in L instead of H since
+    ; the address to send on the bus needs MSB first
+    ld h, 0
+    ld l, c
+    srl l
+    rr  h
+    srl l
+    rr  h
+    ld (reg_addr), hl
+    ld hl, reg_addr
+    ; Perfom the write
     ld a, I2C_EEPROM_ADDRESS
     ; BC and DE are not altered by the routine
     call i2c_write_device
@@ -166,6 +208,12 @@ size_choice:
     DEFM "2 - 16KB\r\n"
     DEFM "Choose EEPROM size [0-2]: "
 size_choice_end:
+
+version_choice:
+    DEFM "0 - ZealFS v1\r\n"
+    DEFM "1 - ZealFS v2\r\n"
+    DEFM "Choose file system [0-1]: "
+version_choice_end:
 
     SECTION BSS
 reg_addr: DEFS 2
