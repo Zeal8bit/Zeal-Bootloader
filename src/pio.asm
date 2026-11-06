@@ -1,9 +1,10 @@
-; SPDX-FileCopyrightText: 2024 Zeal 8-bit Computer <contact@zeal8bit.com>
+; SPDX-FileCopyrightText: 2024-2026 Zeal 8-bit Computer <contact@zeal8bit.com>
 ;
 ; SPDX-License-Identifier: Apache-2.0
 
     INCLUDE "config.asm"
     INCLUDE "pio_h.asm"
+    INCLUDE "keyboard_h.asm"
 
     IF CONFIG_ENABLE_VIDEO_BOARD
         DEFC IO_PIO_SYSTEM_INT_MASK = ~(1 << IO_KEYBOARD_PIN) & 0xff
@@ -48,6 +49,9 @@ pio_initialize:
     out (IO_PIO_USER_CTRL), a
     ld a, IO_PIO_DISABLE_INT
     out (IO_PIO_USER_CTRL), a
+    ; Before enabling interrupts, make sure to reset the keyboard state,
+    ; by simply reading a dummy byte
+    in a, (KB_IO_ADDRESS)
     ; Enable interrupts
     ld a, int_handlers_table >> 8
     ld i, a
