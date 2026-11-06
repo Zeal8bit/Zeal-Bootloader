@@ -354,15 +354,17 @@ _flash_rom_big:
     ; In other word, divide CDE by 4KB, while keeping DE on the stack to calculate
     ; the remainder
     push de
-    ; Shit CDE by 12
+    ; Shift CDE by 12, i.e. divide it by 4096 to get the sector count.
+    ; Use `srl` (logical shift), not `rrc` as the highest bits must be filled
+    ; with 0, rotating them would corrupt the count for any image >= 64KB.
     ld a, d
-    rrc c
+    srl c
     rra
-    rrc c
+    srl c
     rra
-    rrc c
+    srl c
     rra
-    rrc c
+    srl c
     rra
     ld d, c
     ld e, a
